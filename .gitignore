@@ -1,0 +1,120 @@
+# ESP-IDF build directory
+build/
+sdkconfig
+sdkconfig.old
+
+# PlatformIO
+.pio
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Sensitive data and configuration files
+# WiFi credentials
+main/network/wifi_credentials.h
+main/network/wifi_credentials.hpp
+wifi_credentials.h
+wifi_credentials.hpp
+
+# API keys and secrets
+*_api_key.h
+*_api_key.hpp
+*_secret.h
+*_secret.hpp
+secrets.h
+secrets.hpp
+api_keys.h
+api_keys.hpp
+
+# Database credentials
+db_credentials.h
+db_credentials.hpp
+database_credentials.h
+database_credentials.hpp
+
+# Server URLs and endpoints
+server_config.h
+server_config.hpp
+endpoint_config.h
+endpoint_config.hpp
+
+# Personal configuration files
+personal_config.h
+personal_config.hpp
+user_config.h
+user_config.hpp
+
+# Runtime configuration files (copied from template)
+data/settings.json
+data/settings.jsonc
+spiffs/settings.json
+
+# Additional sensitive files
+*.local
+local_settings.json
+user_settings.json
+
+
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# Certificate files
+*.pem
+*.crt
+*.key
+*.p12
+*.pfx
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Compiled object files
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Coverage reports
+*.gcov
+*.gcda
+*.gcno
+
+# ESP-IDF specific
+managed_components/
+dependencies.lock

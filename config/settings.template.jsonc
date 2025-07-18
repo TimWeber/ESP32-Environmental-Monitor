@@ -1,0 +1,159 @@
+{
+  "data_collection": {
+    "sensor_reading_interval_minutes": 30,
+    "hardware": {
+      "i2c": {
+        "sda_pin": 8,
+        "scl_pin": 9
+      }
+    },
+    "calibration": {
+      "temperature": {
+        "type": "offset",
+        "value": 0.0,
+        "unit": "celsius"
+      },
+
+      "humidity": {
+        "type": "linear",
+        "slope": 1.0,
+        "intercept": 0.0,
+        "unit": "percent"
+      },
+      
+      "eco2": {
+        "type": "polynomial",
+        "coefficients": [0.0, 1.0, 0.0],
+        "unit": "ppm"
+      },
+      
+      "tvoc": {
+        "type": "offset",
+        "value": 0,
+        "unit": "ppb"
+      }
+    },
+    "data_validation": {
+      "air_quality": {
+        "aqi_min": 2,
+        "aqi_max": 5
+      },
+      "volatile_compounds": {
+        "tvoc_min_ppb": 5,
+        "tvoc_max_ppb": 10000
+      },
+      "carbon_dioxide": {
+        "eco2_min_ppm": 5,
+        "eco2_max_ppm": 10000
+      }
+    }
+  },
+  "data_transmission": {
+    "posting_interval_minutes": 360,
+    "server": {
+      "url": "http://your-server.local:8080/api/data",
+      "request_timeout_ms": 30000
+    },
+    "retry_policy": {
+      "max_attempts": 2,
+      "delay_between_attempts_ms": 2000
+    }
+  },
+  "connectivity": {
+    "wifi": {
+      "ssid": "YOUR_WIFI_SSID",
+      "password": "YOUR_WIFI_PASSWORD",
+      "connection_timeout_ms": 30000
+    }
+  },
+  "system_monitoring": {
+    "heartbeat_interval_seconds": 30,
+    "status_report_interval_minutes": 2,
+    "performance": {
+      "sensor_queue_size": 5,
+      "detailed_logging_enabled": true,
+      "sleep_mode_enabled": false
+    }
+  }
+}
+
+// Alternative calibration examples (uncomment and modify as needed):
+/*
+// Temperature alternatives:
+"temperature": {
+  "type": "offset",
+  "value": 2.5,
+  "unit": "celsius"
+  // Description: Simple offset - adds 2.5°C to all readings
+},
+
+"temperature": {
+  "type": "linear",
+  "slope": 1.05,
+  "intercept": -1.2,
+  "unit": "celsius"
+  // Description: Linear equation y = 1.05x - 1.2 (for sensor drift correction)
+},
+
+"temperature": {
+  "type": "polynomial",
+  "coefficients": [0.0, 1.0, 0.001],
+  "unit": "celsius"
+  // Description: Polynomial y = x + 0.001x² (for non-linear correction)
+},
+
+// Humidity alternatives:
+"humidity": {
+  "type": "offset",
+  "value": -3.0,
+  "unit": "percent"
+  // Description: Simple offset - subtracts 3% from all readings
+},
+
+"humidity": {
+  "type": "linear",
+  "slope": 0.95,
+  "intercept": 2.0,
+  "unit": "percent"
+  // Description: Linear equation y = 0.95x + 2.0 (for sensor scaling)
+},
+
+// eCO2 alternatives:
+"eco2": {
+  "type": "offset",
+  "value": 50,
+  "unit": "ppm"
+  // Description: Simple offset - adds 50 ppm to all readings
+},
+
+"eco2": {
+  "type": "linear",
+  "slope": 1.1,
+  "intercept": -25,
+  "unit": "ppm"
+  // Description: Linear equation y = 1.1x - 25 (for sensor calibration)
+},
+
+"eco2": {
+  "type": "polynomial",
+  "coefficients": [0.0, 1.0, 0.0001],
+  "unit": "ppm"
+  // Description: Polynomial y = x + 0.0001x² (for non-linear response)
+},
+
+// TVOC alternatives:
+"tvoc": {
+  "type": "offset",
+  "value": 10,
+  "unit": "ppb"
+  // Description: Simple offset - adds 10 ppb to all readings
+},
+
+"tvoc": {
+  "type": "linear",
+  "slope": 0.98,
+  "intercept": 5,
+  "unit": "ppb"
+  // Description: Linear equation y = 0.98x + 5 (for baseline correction)
+}
+*/ 
