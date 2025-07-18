@@ -1,6 +1,6 @@
 # ESP32 Environmental Monitoring System
 
-An embedded environmental monitoring system built for the ESP32-C3. It reads temperature, humidity, and air quality data from sensors and sends it to a remote server over WiFi. The system runs on FreeRTOS with separate tasks handling different parts of the work.
+An embedded environmental monitoring system built for the ESP32-C3. With the help of FreeRTOS, It reads temperature, humidity, and air quality data from sensors and sends it to a remote server over WiFi.
 
 ### Sensors
 - **AHT21**: Temperature and humidity sensor with I2C communication
