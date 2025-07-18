@@ -35,15 +35,15 @@
     },
     "data_validation": {
       "air_quality": {
-        "aqi_min": 2,
+        "aqi_min": 1,
         "aqi_max": 5
       },
       "volatile_compounds": {
-        "tvoc_min_ppb": 5,
+        "tvoc_min_ppb": 1,
         "tvoc_max_ppb": 10000
       },
       "carbon_dioxide": {
-        "eco2_min_ppm": 5,
+        "eco2_min_ppm": 1,
         "eco2_max_ppm": 10000
       }
     }
