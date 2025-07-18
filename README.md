@@ -20,27 +20,6 @@ An embedded environmental monitoring system built for the ESP32-C3. It reads tem
 ## Architecture
 
 
-
-### Task Structure
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Sensor Task   │    │  Network Task   │    │  Monitor Task   │
-│                 │    │                 │    │                 │
-│ • Read sensors  │    │ • HTTP client   │    │ • System health │
-│ • Queue data    │    │ • Retry logic   │    │ • Watchdog feed │
-│ • Calibration   │    │ • JSON format   │    │ • Statistics    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                                 │
-                        ┌─────────────────┐
-                        │   Event Group   │
-                        │   & Queues      │
-                        └─────────────────┘
-```
-
----
-
 ### Data Flow
 ```mermaid
 graph TD
@@ -75,3 +54,22 @@ graph TD
     style J fill:#fce4ec
     style M fill:#fce4ec
 ```
+
+### Task Structure
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Sensor Task   │    │  Network Task   │    │  Monitor Task   │
+│                 │    │                 │    │                 │
+│ • Read sensors  │    │ • HTTP client   │    │ • System health │
+│ • Queue data    │    │ • Retry logic   │    │ • Watchdog feed │
+│ • Calibration   │    │ • JSON format   │    │ • Statistics    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                        ┌─────────────────┐
+                        │   Event Group   │
+                        │   & Queues      │
+                        └─────────────────┘
+```
+
