@@ -4,6 +4,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // WiFi event bits for event groups
 #define WIFI_CONNECTED_BIT      BIT0
 #define WIFI_FAIL_BIT          BIT1
@@ -38,3 +42,7 @@ const char* wifi_get_ip_string(void);
  * @brief WiFi connection success callback
  */
 void wifi_connection_success_callback(void);
+
+#ifdef __cplusplus
+}
+#endif

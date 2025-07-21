@@ -234,5 +234,68 @@ bool sendSensorDataToDatabase(const sensorDatabaseData_t *sensorData,
     return success;
 }
 
+// New handshake function
+bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, uint32_t timeoutMs) {
+    esp_http_client_config_t config = {
+        .url = "http://media.local:8080/api/handshake",
+        .timeout_ms = timeoutMs,
+    };
+    
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Failed to create HTTP client for handshake");
+        return false;
+    }
+    
+    // Get current timestamp
+    time_t now;
+    time(&now);
+    char timestamp_str[64];
+    strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+    
+    // Create JSON payload
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "sensor_id", sensorId);
+    cJSON_AddStringToObject(root, "esp32_ip", esp32Ip);
+    cJSON_AddStringToObject(root, "device_name", deviceName);
+    cJSON_AddStringToObject(root, "timestamp", timestamp_str);
+    cJSON_AddBoolToObject(root, "persistent_id", true); // Indicate this is a persistent ID
+    
+    char* json_string = cJSON_Print(root);
+    if (!json_string) {
+        ESP_LOGE(TAG, "Failed to create JSON for handshake");
+        cJSON_Delete(root);
+        esp_http_client_cleanup(client);
+        return false;
+    }
+    
+    // Set headers
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_post_field(client, json_string, strlen(json_string));
+    
+    // Send request
+    esp_err_t err = esp_http_client_perform(client);
+    int status_code = esp_http_client_get_status_code(client);
+    int content_length = esp_http_client_get_content_length(client);
+    
+    ESP_LOGI(TAG, "Handshake HTTP Status = %d, content_length = %d", status_code, content_length);
+    
+    bool success = (err == ESP_OK && status_code == 200);
+    
+    if (success) {
+        ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId, esp32Ip);
+    } else {
+        ESP_LOGE(TAG, "Handshake failed - status: %d, error: %s", status_code, esp_err_to_name(err));
+    }
+    
+    // Cleanup
+    free(json_string);
+    cJSON_Delete(root);
+    esp_http_client_cleanup(client);
+    
+    return success;
+}
+
 
 

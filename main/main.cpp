@@ -1,44 +1,33 @@
 #include "main.hpp"
-
-#include <cstdio>
-#include <cstring>
-#include <stdexcept>
-#include <memory>
-
-// ESP-IDF includes
+#include "core/rtos_manager.hpp"
+#include "core/I2CManager.hpp"
+#include "core/config_manager.hpp"
+#include "core/json_config_provider.hpp"
+#include "sensors/AHT21Sensor.hpp"
+#include "sensors/ENS160Sensor.hpp"
+#include "network/wifi_manager.h"
+#include "network/sntp_manager.h"
+#include "network/http_client.h"
+#include "network/http_server.h"
+#include "network/secure_credentials.h"
+#include "core/health_monitor.hpp"
+#include "network/health_server.hpp"
+#include "core/sensor_registry.hpp"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "esp_err.h"
+#include "esp_spiffs.h"
+#include "esp_task_wdt.h"
+#include <cstring>
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_spiffs.h"
-#include "esp_vfs.h"
-
-// Core system components
-#include "core/core.hpp"
-
-// Sensor components
-#include "sensors/AHT21Sensor.hpp"
-#include "sensors/ENS160Sensor.hpp"
-
-// Legacy C modules
-extern "C" {
-    #include "network/wifi_manager.h"
-    #include "network/sntp_manager.h"
-    #include "network/secure_credentials.h"
-    #include "network/http_server.h"
-}
-
-// Health monitoring includes
-#include "core/health_monitor.hpp"
-#include "network/health_server.hpp"
+#include <memory>
+#include <string>
 
 static const char* TAG = "SQLiteTest_CPP";
-
-// Global health monitoring instances
 static std::shared_ptr<HealthMonitor> g_healthMonitor = nullptr;
 static std::unique_ptr<HealthServer> g_healthServer = nullptr;
+static std::unique_ptr<SensorRegistry> g_sensorRegistry = nullptr; // Added sensor registry
 
 // Health callback function for HTTP server
 extern "C" const char* health_callback(const char* request_data) {
@@ -195,13 +184,21 @@ extern "C" void app_main() {
         if (http_ret == ESP_OK) {
             ESP_LOGI(TAG, "HTTP server initialised successfully");
             
+            // Initialise sensor registry for persistent sensor IDs
+            ESP_LOGI(TAG, "Initialising sensor registry...");
+            g_sensorRegistry = std::make_unique<SensorRegistry>();
+            esp_err_t registry_ret = g_sensorRegistry->initialise();
+            if (registry_ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to initialise sensor registry: %s", esp_err_to_name(registry_ret));
+            } else {
+                ESP_LOGI(TAG, "Sensor registry initialised - ID: %s", g_sensorRegistry->getSensorId().c_str());
+            }
+            
             // Initialise health monitoring system
             ESP_LOGI(TAG, "Initialising health monitoring system...");
             g_healthMonitor = std::make_shared<HealthMonitor>("ESP32_Sensor_01");
             g_healthMonitor->initialise();
-            
             g_healthServer = std::make_unique<HealthServer>(g_healthMonitor);
-            
             // Register health callback with HTTP server
             esp_err_t callback_ret = http_server_register_health_callback(health_callback);
             if (callback_ret == ESP_OK) {
@@ -252,6 +249,24 @@ extern "C" void app_main() {
         ESP_LOGI(TAG, "Starting RTOS manager...");
         ESP_ERROR_CHECK(rtosManager.start());
         ESP_LOGI(TAG, "RTOS manager started successfully");
+        
+        // Send handshake to server to register this sensor
+        ESP_LOGI(TAG, "Sending handshake to server...");
+        const char* esp32Ip = wifi_manager_get_ip();
+        std::string sensorId = g_sensorRegistry ? g_sensorRegistry->getSensorId() : "sensor_unknown";
+        
+        if (sendHandshakeToServer(sensorId.c_str(), esp32Ip, 10000)) {
+            ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId.c_str(), esp32Ip);
+            ESP_LOGI(TAG, "Health data available at: http://media.local/api/%s", sensorId.c_str());
+            
+            // Mark as registered in the registry
+            if (g_sensorRegistry) {
+                // The registry will remember this sensor ID across reboots
+                ESP_LOGI(TAG, "Sensor ID %s will be remembered across reboots", sensorId.c_str());
+            }
+        } else {
+            ESP_LOGW(TAG, "Handshake failed - sensor may not be registered with server");
+        }
         
         // Test health monitoring with some sample data
         if (g_healthMonitor) {

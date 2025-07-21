@@ -7,6 +7,7 @@ idf_component_register(
         "core/I2CManager.cpp"
         "core/config_manager.cpp"
         "core/json_config_provider.cpp"
+        "core/sensor_registry.cpp"
         "sensors/AHT21Sensor.cpp"
         "sensors/ENS160Sensor.cpp"
         "network/wifi_manager.c"
