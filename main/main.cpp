@@ -27,9 +27,36 @@ extern "C" {
     #include "network/wifi_manager.h"
     #include "network/sntp_manager.h"
     #include "network/secure_credentials.h"
+    #include "network/http_server.h"
 }
 
+// Health monitoring includes
+#include "core/health_monitor.hpp"
+#include "network/health_server.hpp"
+
 static const char* TAG = "SQLiteTest_CPP";
+
+// Global health monitoring instances
+static std::shared_ptr<HealthMonitor> g_healthMonitor = nullptr;
+static std::unique_ptr<HealthServer> g_healthServer = nullptr;
+
+// Health callback function for HTTP server
+extern "C" const char* health_callback(const char* request_data) {
+    if (g_healthServer) {
+        std::string response = g_healthServer->handleHealthRequest(request_data);
+        
+        // Allocate memory for response (caller will free)
+        char* response_ptr = (char*)malloc(response.length() + 1);
+        if (response_ptr) {
+            strcpy(response_ptr, response.c_str());
+            ESP_LOGI("HEALTH_CALLBACK", "Returning health data: %s", response_ptr);
+            return response_ptr;
+        }
+    }
+    
+    // Default error response
+    return strdup("{\"error\": \"Health monitoring not available\"}");
+}
 
 /**
  * @brief Main application entry point
@@ -162,8 +189,52 @@ extern "C" void app_main() {
         ESP_LOGI(TAG, "Initialising SNTP...");
         sntp_manager_init();
         
+        // Initialise HTTP server
+        ESP_LOGI(TAG, "Initialising HTTP server...");
+        esp_err_t http_ret = http_server_init();
+        if (http_ret == ESP_OK) {
+            ESP_LOGI(TAG, "HTTP server initialised successfully");
+            
+            // Initialise health monitoring system
+            ESP_LOGI(TAG, "Initialising health monitoring system...");
+            g_healthMonitor = std::make_shared<HealthMonitor>("ESP32_Sensor_01");
+            g_healthMonitor->initialise();
+            
+            g_healthServer = std::make_unique<HealthServer>(g_healthMonitor);
+            
+            // Register health callback with HTTP server
+            esp_err_t callback_ret = http_server_register_health_callback(health_callback);
+            if (callback_ret == ESP_OK) {
+                ESP_LOGI(TAG, "Health callback registered successfully");
+            } else {
+                ESP_LOGE(TAG, "Failed to register health callback: %s", esp_err_to_name(callback_ret));
+            }
+        } else {
+            ESP_LOGE(TAG, "Failed to initialise HTTP server: %s", esp_err_to_name(http_ret));
+        }
+        esp_task_wdt_reset(); // Feed watchdog
+
         // Create and initialise RTOS manager
         RTOSManager rtosManager;
+        ESP_LOGI(TAG, "RTOS manager created");
+        
+        // Update health monitor with sensor status using existing sensors
+        if (g_healthMonitor) {
+            // Check sensor connections based on existing sensor instances
+            bool aht21_connected = (aht21Sensor != nullptr);
+            bool ens160_connected = (ens160Sensor != nullptr);
+            
+            g_healthMonitor->updateSensorStatus(aht21_connected, ens160_connected);
+            ESP_LOGI(TAG, "Health monitor updated with sensor status: AHT21=%s, ENS160=%s", 
+                      aht21_connected ? "connected" : "disconnected",
+                      ens160_connected ? "connected" : "disconnected");
+            
+            // Set initial sensor states
+            g_healthMonitor->updateSensorStates("ready", "warm_up");
+            ESP_LOGI(TAG, "Health monitor updated with sensor states: AHT21=ready, ENS160=warm_up");
+        }
+        
+        // Initialise RTOS manager with existing sensors
         ESP_ERROR_CHECK(rtosManager.initialise(i2cManager, aht21Sensor, ens160Sensor, configPath));
         
         // Validate configuration before starting
@@ -175,23 +246,41 @@ extern "C" void app_main() {
         }
         
         // Start the RTOS manager
+        ESP_LOGI(TAG, "Starting RTOS manager...");
         ESP_ERROR_CHECK(rtosManager.start());
+        ESP_LOGI(TAG, "RTOS manager started successfully");
         
         // Main loop
         ESP_LOGI(TAG, "System started successfully");
         
+        TickType_t lastHealthUpdate = 0;
+        TickType_t lastStatsTime = 0;
+        
         while (rtosManager.isRunning()) {
+            TickType_t currentTime = xTaskGetTickCount();
+            
             // Feed watchdog every 5 seconds to prevent timeouts
             esp_task_wdt_reset();
             
-            // Print statistics every 10 seconds
-            uint32_t readings, transmissions, errors;
-            rtosManager.getStatistics(readings, transmissions, errors);
+            // Update health metrics every 30 seconds
+            if (g_healthMonitor && (currentTime - lastHealthUpdate) >= pdMS_TO_TICKS(30000)) {
+                // Update sensor success rates (example - replace with actual calculations)
+                g_healthMonitor->updateSensorSuccessRates(99, 98);
+                
+                // Update network metrics (example - replace with actual measurements)
+                g_healthMonitor->updateNetworkMetrics(95, 1200, 5);
+                
+                // Update zero readings count
+                g_healthMonitor->updateZeroReadingsCount(10);
+                
+                ESP_LOGD(TAG, "Health metrics updated");
+                lastHealthUpdate = currentTime;
+            }
             
-            // Print system statistics every 5 minutes
-            static TickType_t lastStatsTime = 0;
-            TickType_t currentTime = xTaskGetTickCount();
+            // Print statistics every 5 minutes
             if ((currentTime - lastStatsTime) >= pdMS_TO_TICKS(300000)) { // 5 minutes
+                uint32_t readings, transmissions, errors;
+                rtosManager.getStatistics(readings, transmissions, errors);
                 ESP_LOGI(TAG, "System Statistics: readings=%lu, transmissions=%lu, errors=%lu, uptime=%lu ms",
                          readings, transmissions, errors, pdTICKS_TO_MS(currentTime));
                 lastStatsTime = currentTime;

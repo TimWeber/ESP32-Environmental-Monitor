@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "config_manager.hpp"
+#include "health_monitor.hpp"
 #include <memory>
 #include <atomic>
 #include <string>
@@ -16,6 +17,7 @@
 class I2CManager;
 class AHT21Sensor;
 class ENS160Sensor;
+class HealthServer;
 
 /**
  * @brief Sensor data structure for inter-task communication
@@ -139,6 +141,10 @@ private:
     SensorHealthStatus aht21Health_;
     SensorHealthStatus ens160Health_;
     std::atomic<bool> heartbeatTaskRunning_;
+    
+    // Health monitoring
+    std::shared_ptr<HealthMonitor> healthMonitor_;
+    std::unique_ptr<HealthServer> healthServer_;
     
     // Expected sensor IDs
     static constexpr uint16_t AHT21_EXPECTED_STATUS_MASK = 0x08;  // Calibrated bit

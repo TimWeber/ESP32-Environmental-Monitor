@@ -27,3 +27,14 @@ void wifi_manager_deinit(void);
 // Config-based initialization functions
 esp_err_t wifi_manager_init_from_config(const char* config_path);
 bool wifi_manager_connect_and_wait_from_config(const char* config_path);
+
+/**
+ * @brief Get ESP32 IP address as string
+ * @return IP address string (e.g., "192.168.1.100")
+ */
+const char* wifi_get_ip_string(void);
+
+/**
+ * @brief WiFi connection success callback
+ */
+void wifi_connection_success_callback(void);

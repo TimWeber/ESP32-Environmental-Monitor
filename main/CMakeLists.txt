@@ -12,7 +12,10 @@ idf_component_register(
         "network/wifi_manager.c"
         "network/sntp_manager.c"
         "network/http_client.c"
+        "network/http_server.c"
         "network/secure_credentials.c"
+        "core/health_monitor.cpp"
+        "network/health_server.cpp"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi
              esp_http_client

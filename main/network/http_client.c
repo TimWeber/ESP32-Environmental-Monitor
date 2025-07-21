@@ -1,20 +1,36 @@
 #include "http_client.h"
-#include "esp_http_client.h"
+#include "secure_credentials.h"
 #include "esp_log.h"
+#include "esp_http_client.h"
 #include "cJSON.h"
-#include "esp_system.h"
-#include "esp_timer.h"
-#include <time.h>
+#include <string.h>
+#include <stdio.h>
 #include <math.h>
-#include <stdlib.h>
+#include <time.h>
 
-static const char* TAG = "HTTP";
-static const char* deviceName = "ESP32_Sensor_01";
+static const char* TAG = "HTTP_CLIENT";
 
-static char serverUrl[256] = "http://your-server.local:8080/api/data";
+// Global variables
+const char* deviceName = "ESP32_Sensor_01";
+const char* serverUrl = "http://your-server.local:8080/api/data";
 
+// Health monitoring integration
+// To integrate health monitoring, add this to your HTTP request handler:
+/*
+extern HealthServer* g_healthServer;  // Global health server instance
 
+// In your HTTP request processing function:
+if (g_healthServer && g_healthServer->isHealthRequest(request_data)) {
+    std::string response = g_healthServer->handleHealthRequest(request_data);
+    // Send response back to client
+    return response;
+}
+*/
 
+// HTTP client handle for reuse
+static esp_http_client_handle_t g_http_client = NULL;
+
+// HTTP event handler function
 static esp_err_t httpEventHandler(esp_http_client_event_t *evt)
 {
     switch(evt->event_id) {
@@ -45,6 +61,41 @@ static esp_err_t httpEventHandler(esp_http_client_event_t *evt)
     }
     return ESP_OK;
 }
+
+esp_err_t http_client_init(void) {
+    ESP_LOGI(TAG, "Initialising HTTP client");
+    
+    // Create HTTP client configuration
+    esp_http_client_config_t config = {
+        .url = serverUrl,
+        .event_handler = httpEventHandler,
+        .timeout_ms = 15000,
+        .buffer_size = 2048,
+        .buffer_size_tx = 2048,
+    };
+    
+    g_http_client = esp_http_client_init(&config);
+    if (g_http_client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialise HTTP client");
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "HTTP client initialised successfully");
+    return ESP_OK;
+}
+
+void http_client_deinit(void) {
+    if (g_http_client) {
+        esp_http_client_cleanup(g_http_client);
+        g_http_client = NULL;
+        ESP_LOGI(TAG, "HTTP client deinitialised");
+    }
+}
+
+bool sendSensorDataToDatabaseDefault(const sensorDatabaseData_t *sensorData) {
+    return sendSensorDataToDatabase(sensorData, 0, NULL, 0, 0, 0, 0, 0, 0);
+}
+
 
 // Consolidated function that handles all sensor data transmission scenarios
 bool sendSensorDataToDatabase(const sensorDatabaseData_t *sensorData,

@@ -5,6 +5,7 @@
 #include "network/http_client.h"
 #include "network/secure_credentials.h"
 #include "network/wifi_manager.h"
+#include "network/health_server.hpp"
 #include "cJSON.h"
 #include <cstring>
 #include <exception>
@@ -54,7 +55,8 @@ RTOSManager::RTOSManager()
       tvocMax_(10000),
       eco2Min_(200),
       eco2Max_(10000),
-      heartbeatTaskRunning_(false) {
+      heartbeatTaskRunning_(false),
+      healthMonitor_(std::make_shared<HealthMonitor>("ESP32_Sensor_01")) {
     
     // Initialize sensor health status
     aht21Health_.sensorName = "AHT21";
@@ -128,7 +130,14 @@ esp_err_t RTOSManager::initialise(std::shared_ptr<I2CManager> i2cManager,
     // Mark system as initialised but not running yet
     systemRunning_.store(false);
     
-    ESP_LOGI(TAG, "RTOS manager initialised successfully");
+    // Initialize heartbeat monitoring
+    heartbeatTaskRunning_ = false;
+    
+    // Initialize health monitoring
+    healthMonitor_->initialise();
+    healthServer_ = std::make_unique<HealthServer>(healthMonitor_);
+    
+    ESP_LOGI(TAG, "RTOSManager initialised successfully");
     return ESP_OK;
 }
 
@@ -505,22 +514,21 @@ void RTOSManager::sensorTask(void* parameter) {
                         }
                     }
                     
-                    // Send data to network task if we have valid readings
-                    if (sensor_data.aht21Valid || sensor_data.ens160Valid) {
-                        sensor_data.isNewData = true;  // Mark as new data
-                        if (xQueueSend(manager->sensorDataQueue_, &sensor_data, pdMS_TO_TICKS(1000)) == pdTRUE) {
-                            manager->sensorReadingsCount_.fetch_add(1);
-                            xEventGroupSetBits(manager->systemEventGroup_, SENSOR_DATA_READY_BIT);
-                            // Feed watchdog when sensors are working properly
-                            manager->feedWatchdog();
-                            ESP_LOGI(TAG, "Sensor data queued successfully - watchdog fed");
-                        } else {
-                            ESP_LOGW(TAG, "Failed to send sensor data to network task");
-                        }
+                    // Record sensor reading success/failure for health monitoring
+                    manager->healthMonitor_->recordSensorReading(true);
+                    
+                    // Log sensor data
+                    ESP_LOGI(TAG, "Sensor data: Temp=%.1f°C, Humidity=%.1f%%, AQI=%d, TVOC=%d, eCO2=%d",
+                              sensor_data.temperature, sensor_data.humidity, sensor_data.aqi, sensor_data.tvoc, sensor_data.eco2);
+                    
+                    // Send to network task
+                    if (xQueueSend(manager->sensorDataQueue_, &sensor_data, pdMS_TO_TICKS(1000)) != pdTRUE) {
+                        ESP_LOGW(TAG, "Failed to send sensor data to network task");
                     }
                     
                 } catch (const std::exception& e) {
                     ESP_LOGE(TAG, "Sensor reading failed: %s", e.what());
+                    manager->healthMonitor_->recordSensorReading(false);
                 }
                 
                 xSemaphoreGive(manager->sensorMutex_);
@@ -621,6 +629,7 @@ void RTOSManager::networkTask(void* parameter) {
                 
                 if (success) {
                     manager->networkTransmissionsCount_.fetch_add(1);
+                    manager->healthMonitor_->recordNetworkTransmission(true);
                     if (manager->detailedLoggingEnabled_) {
                         ESP_LOGI(TAG, "Sensor data sent to database successfully");
                         ESP_LOGI(TAG, "Network transmission successful - watchdog fed");
@@ -629,6 +638,7 @@ void RTOSManager::networkTask(void* parameter) {
                     manager->feedWatchdog();
                 } else {
                     manager->networkErrorsCount_.fetch_add(1);
+                    manager->healthMonitor_->recordNetworkTransmission(false);
                     ESP_LOGE(TAG, "Failed to send sensor data to database after %lu retries", 
                              (unsigned long)manager->networkMaxRetries_);
                 }
