@@ -237,6 +237,9 @@ extern "C" void app_main() {
         // Initialise RTOS manager with existing sensors
         ESP_ERROR_CHECK(rtosManager.initialise(i2cManager, aht21Sensor, ens160Sensor, configPath));
         
+        // Set the health monitor to use the main's instance
+        rtosManager.setHealthMonitor(g_healthMonitor);
+        
         // Validate configuration before starting
         if (!rtosManager.validateConfiguration()) {
             ESP_LOGE(TAG, "Configuration validation failed - system cannot start");
@@ -249,6 +252,22 @@ extern "C" void app_main() {
         ESP_LOGI(TAG, "Starting RTOS manager...");
         ESP_ERROR_CHECK(rtosManager.start());
         ESP_LOGI(TAG, "RTOS manager started successfully");
+        
+        // Test health monitoring with some sample data
+        if (g_healthMonitor) {
+            ESP_LOGI(TAG, "Testing health monitoring system...");
+            
+            // Simulate some sensor readings
+            g_healthMonitor->recordSensorReading(true);
+            g_healthMonitor->recordSensorReading(true);
+            g_healthMonitor->recordSensorReading(false);
+            
+            // Simulate some network transmissions
+            g_healthMonitor->recordNetworkTransmission(true);
+            g_healthMonitor->recordNetworkTransmission(false);
+            
+            ESP_LOGI(TAG, "Health monitoring test completed");
+        }
         
         // Main loop
         ESP_LOGI(TAG, "System started successfully");

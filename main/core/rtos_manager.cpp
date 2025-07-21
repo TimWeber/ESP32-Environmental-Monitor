@@ -468,36 +468,51 @@ void RTOSManager::sensorTask(void* parameter) {
     while (manager->systemRunning_.load()) {
         TickType_t currentTime = xTaskGetTickCount();
         
+        // Debug: Log timing information
+        static TickType_t lastDebugTime = 0;
+        if ((currentTime - lastDebugTime) >= pdMS_TO_TICKS(30000)) { // Every 30 seconds
+            ESP_LOGI(TAG, "Sensor task debug: currentTime=%lu, lastReadingTime=%lu, interval=%lu, timeSinceLast=%lu",
+                     currentTime, lastReadingTime, manager->sensorReadingIntervalMs_,
+                     pdTICKS_TO_MS(currentTime - lastReadingTime));
+            lastDebugTime = currentTime;
+        }
+        
         if ((currentTime - lastReadingTime) >= pdMS_TO_TICKS(manager->sensorReadingIntervalMs_)) {
+            ESP_LOGI(TAG, "Sensor task: Starting sensor reading cycle");
             SensorData sensor_data;
             sensor_data.timestamp = pdTICKS_TO_MS(currentTime);
+            sensor_data.isNewData = true; // Set this to true for new readings
             
             // Acquire sensor mutex
             if (xSemaphoreTake(manager->sensorMutex_, pdMS_TO_TICKS(1000)) == pdTRUE) {
                 try {
                     // Read AHT21 sensor
                     if (manager->aht21Sensor_) {
+                        ESP_LOGI(TAG, "Sensor task: Reading AHT21 sensor...");
                         AHT21Data aht21_data = manager->aht21Sensor_->readData();
                         if (aht21_data.valid) {
                             sensor_data.temperature = aht21_data.temperature;
                             sensor_data.humidity = aht21_data.humidity;
                             sensor_data.aht21Valid = true;
                             
-                            if (manager->detailedLoggingEnabled_) {
-                                ESP_LOGI(TAG, "AHT21: T=%.2f°C, H=%.2f%%", 
-                                        aht21_data.temperature, aht21_data.humidity);
-                            }
+                            ESP_LOGI(TAG, "AHT21: T=%.2f°C, H=%.2f%%", 
+                                    aht21_data.temperature, aht21_data.humidity);
                             
                             // Set environmental compensation for ENS160
                             if (manager->ens160Sensor_) {
                                 manager->ens160Sensor_->setEnvironmentalCompensation(
                                     aht21_data.temperature, aht21_data.humidity);
                             }
+                        } else {
+                            ESP_LOGW(TAG, "AHT21 data not valid");
                         }
+                    } else {
+                        ESP_LOGW(TAG, "AHT21 sensor not available");
                     }
                     
                     // Read ENS160 sensor
                     if (manager->ens160Sensor_) {
+                        ESP_LOGI(TAG, "Sensor task: Reading ENS160 sensor...");
                         ENS160Data ens160_data = manager->ens160Sensor_->readData();
                         if (ens160_data.valid) {
                             sensor_data.aqi = ens160_data.aqi;
@@ -505,13 +520,13 @@ void RTOSManager::sensorTask(void* parameter) {
                             sensor_data.eco2 = ens160_data.eco2;
                             sensor_data.ens160Valid = true;
                             
-                            if (manager->detailedLoggingEnabled_) {
-                                ESP_LOGI(TAG, "ENS160: AQI=%d, TVOC=%d, eCO2=%d", 
-                                        ens160_data.aqi, ens160_data.tvoc, ens160_data.eco2);
-                            }
+                            ESP_LOGI(TAG, "ENS160: AQI=%d, TVOC=%d, eCO2=%d", 
+                                    ens160_data.aqi, ens160_data.tvoc, ens160_data.eco2);
                         } else {
                             ESP_LOGW(TAG, "ENS160 data not valid - will be skipped in database post");
                         }
+                    } else {
+                        ESP_LOGW(TAG, "ENS160 sensor not available");
                     }
                     
                     // Record sensor reading success/failure for health monitoring
@@ -568,9 +583,19 @@ void RTOSManager::networkTask(void* parameter) {
         // Wait for sensor data with very short timeout to allow frequent watchdog feeding
         TickType_t waitTime = pdMS_TO_TICKS(1000);  // 1 second timeout maximum
         
+        // Debug: Log network task status
+        static TickType_t lastNetworkDebugTime = 0;
+        TickType_t currentNetworkTime = xTaskGetTickCount();
+        if ((currentNetworkTime - lastNetworkDebugTime) >= pdMS_TO_TICKS(30000)) { // Every 30 seconds
+            ESP_LOGI(TAG, "Network task debug: Waiting for sensor data...");
+            lastNetworkDebugTime = currentNetworkTime;
+        }
+        
         if (xQueueReceive(manager->sensorDataQueue_, &sensor_data, waitTime) == pdTRUE) {
+            ESP_LOGI(TAG, "Network task: Received sensor data from queue");
             // Only process if this is new data
             if (sensor_data.isNewData) {
+                ESP_LOGI(TAG, "Network task: Processing new sensor data");
                 // Feed watchdog before starting network operation
                 manager->feedWatchdog();
                 

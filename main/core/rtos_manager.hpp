@@ -217,4 +217,9 @@ public:
     // Enable move constructor and assignment operator
     RTOSManager(RTOSManager&& other) noexcept;
     RTOSManager& operator=(RTOSManager&& other) noexcept;
+
+    // Method to set health monitor from outside
+    void setHealthMonitor(std::shared_ptr<HealthMonitor> healthMonitor) {
+        healthMonitor_ = healthMonitor;
+    }
 }; 
