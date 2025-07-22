@@ -11,6 +11,7 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **WiFi**: Connects to your network using credentials stored securely in NVS
 - **HTTP Client**: Sends JSON data to your server with retry logic
 - **SNTP**: Syncs time for accurate timestamps
+- **Health Server**: Custom HTTP server providing system health monitoring
 
 ### Configuration
 - **JSON config**: All settings in a JSON file that gets embedded in the firmware
@@ -19,6 +20,7 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
 ## Architecture
+
 
 ### Data Flow
 ```mermaid
@@ -33,67 +35,102 @@ graph TD
     
     I[Configuration] -->|JSON| J[Config Manager]
     J --> K[RTOS Manager]
+    J --> L[Sensor Registry]
     K --> D
     K --> G
     
-    L[WiFi Manager] -->|Credentials| G
-    M[Secure Storage] -->|NVS| L
+    M[WiFi Manager] -->|Credentials| G
+    N[Secure Storage] -->|NVS| M
     
-    N[Monitor Task] -->|Health Check| K
-    N -->|Statistics| O[System Stats]
+    O[Monitor Task] -->|Health Check| K
+    O -->|Statistics| P[System Stats]
     
-    P[SNTP Manager] -->|Time Sync| G
+    Q[SNTP Manager] -->|Time Sync| G
+    
+    %% Health Monitoring Components
+    D -->|Health Stats| R[Health Monitor]
+    G -->|Health Stats| R
+    R --> S[Health Server]
+    S -->|HTTP GET| T[Health Endpoint]
+    
+    %% Heartbeat Monitoring
+    U[Heartbeat Task] -->|Status Check| A
+    U -->|Status Check| C
+    U -->|Sensor Health| K
     
     style A fill:#e1f5fe
     style C fill:#e1f5fe
     style B fill:#f3e5f5
     style D fill:#fff3e0
     style G fill:#fff3e0
-    style N fill:#fff3e0
+    style O fill:#fff3e0
+    style U fill:#fff3e0
     style H fill:#e8f5e8
     style J fill:#fce4ec
-    style M fill:#fce4ec
+    style L fill:#fce4ec
+    style N fill:#fce4ec
+    style R fill:#fff8e1
+    style S fill:#fff8e1
+    style T fill:#e8f5e8
 ```
 
 ### Task Structure
 
 ```mermaid
-graph TB
-    subgraph "FreeRTOS Task Architecture"
-        subgraph "Core Tasks"
-            SENSOR[Sensor Task<br/>• Read AHT21 & ENS160<br/>• Data validation<br/>• Environmental compensation]
-            
-            NETWORK[Network Task<br/>• HTTP transmission<br/>• Retry logic<br/>• JSON formatting]
-            
-            MONITOR[Monitor Task<br/>• System health<br/>• Statistics<br/>• Diagnostics]
-        end
-        
-        subgraph "System Protection"
-            WATCHDOG[Watchdog Task<br/>• Task monitoring<br/>• System recovery]
-        end
-        
-        subgraph "Inter-Task Communication"
-            QUEUE[Sensor Queue<br/>• Data transfer]
-            EVENTS[Event Group<br/>• Synchronisation]
-        end
+
+graph LR
+    subgraph "Core Tasks"
+        SENSOR[Sensor Task<br/>• Read sensors<br/>• Validate data<br/>• Update health stats]
+        NETWORK[Network Task<br/>• HTTP transmission<br/>• Retry logic<br/>• Update health stats]
+        MONITOR[Monitor Task<br/>• System health<br/>• Statistics<br/>• Diagnostics]
+        HEARTBEAT[Heartbeat Task<br/>• Sensor health monitoring<br/>• Status checks<br/>• Failure detection]
     end
     
-    %% Task relationships
+    subgraph "Health System"
+        HEALTH_MONITOR[Health Monitor<br/>• Statistics collection<br/>• Thread-safe counters]
+        HEALTH_SERVER[Health Server<br/>• HTTP endpoint<br/>• GET /api/sensor#]
+    end
+    
+    subgraph "System Protection"
+        WATCHDOG[Watchdog Task<br/>• Task monitoring<br/>• System recovery]
+    end
+    
+    subgraph "Communication"
+        QUEUE[Sensor Queue<br/>• Data transfer]
+        EVENTS[Event Group<br/>• Synchronisation]
+    end
+    
+    %% Core task relationships
+
+
     SENSOR --> QUEUE
     QUEUE --> NETWORK
     SENSOR --> EVENTS
     NETWORK --> EVENTS
     MONITOR --> EVENTS
+
+    HEARTBEAT --> EVENTS
+    
+    %% Health monitoring relationships
+    SENSOR --> HEALTH_MONITOR
+    NETWORK --> HEALTH_MONITOR
+    HEARTBEAT --> HEALTH_MONITOR
+    HEALTH_MONITOR --> HEALTH_SERVER
+    
+    %% Protection relationships
     WATCHDOG --> SENSOR
     WATCHDOG --> NETWORK
     WATCHDOG --> MONITOR
+    WATCHDOG --> HEARTBEAT
     
     %% Styling
     classDef coreTask fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef healthTask fill:#fff8e1,stroke:#f57c00,stroke-width:2px
     classDef protection fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef communication fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
     
-    class SENSOR,NETWORK,MONITOR coreTask
+    class SENSOR,NETWORK,MONITOR,HEARTBEAT coreTask
+    class HEALTH_MONITOR,HEALTH_SERVER healthTask
     class WATCHDOG protection
     class QUEUE,EVENTS communication
 ```
@@ -111,21 +148,95 @@ gantt
     ENS160 Reading   :ens160, after aht21, 10s
     Data Validation  :validation, after ens160, 10s
     Queue Send       :queue, after validation, 10s
+    Health Update    :health, after queue, 5s
     
     section Network Task
     Queue Receive    :receive, after queue, 10s
     HTTP Request     :http, after receive, 40s
     Response Process :response, after http, 10s
+    Health Update    :health_net, after response, 5s
     
     section Monitor Task
     Health Check     :health, 2024-01-01, 10s
     Statistics       :stats, after health, 10s
+    
+    section Heartbeat Task
+    Sensor Health    :heartbeat, 2024-01-01, 30s
+    Status Check     :status, after heartbeat, 10s
+    Failure Detect   :failure, after status, 5s
+    
+    section Health Monitoring
+    Stats Collection :stats_collect, 2024-01-01, 30s
+    Endpoint Ready   :endpoint, after stats_collect, 10s
     
     section Watchdog
     Feed Watchdog    :watchdog, 2024-01-01, 50s
 ```
 
 **Note**: All timing intervals are user-configurable via settings.json. Default values shown above can be customised at build time.
+
+### Health Monitoring System
+
+The system includes a comprehensive health monitoring system that tracks:
+
+#### **Real-time Statistics**
+- **Sensor readings**: Total successful and failed readings
+- **Network transmissions**: Total successful and failed HTTP requests
+- **System uptime**: Continuous uptime tracking
+- **Memory usage**: Free memory monitoring
+- **WiFi signal strength**: Connection quality monitoring
+
+#### **Sensor Health**
+- **Sensor connectivity**: AHT21 and ENS160 connection status
+- **Success rates**: Percentage of successful sensor readings
+- **Sensor states**: Current operational state (ready, warm_up, etc.)
+- **Zero readings count**: Tracks invalid sensor data
+
+#### **Network Health**
+- **HTTP success rate**: Percentage of successful transmissions
+- **Average response time**: Network performance metrics
+- **Retry attempts**: Total retry attempts for failed requests
+
+### Health Endpoint
+
+The system provides a health monitoring endpoint at `http://<esp32-ip>/api/health`:
+
+#### **Request**
+```http
+GET /api/health
+```
+
+#### **Response**
+```json
+{
+  "device": "ESP32_Sensor_01",
+  "timestamp": "2024-01-15T14:30:00Z",
+  "uptime_seconds": 259200,
+  "system_health": {
+    "sensor_readings_total": 4320,
+    "sensor_readings_failed": 12,
+    "network_transmissions_total": 1440,
+    "network_transmissions_failed": 8,
+    "memory_free_bytes": 23552,
+    "wifi_signal_dbm": -45,
+    "watchdog_resets": 0
+  },
+  "sensor_health": {
+    "aht21_connected": true,
+    "ens160_connected": true,
+    "aht21_success_rate": 99.7,
+    "ens160_success_rate": 99.2,
+    "zero_readings_count": 15,
+    "aht21_state": "ready",
+    "ens160_state": "warm_up"
+  },
+  "network_health": {
+    "http_success_rate": 99.4,
+    "average_response_time_ms": 1200,
+    "retry_attempts_total": 23
+  }
+}
+```
 
 ### Sensor Data Validation Flow
 
@@ -187,36 +298,11 @@ flowchart TD
     SEND --> HTTP[HTTP POST to Server]
     HTTP --> DB[Database Storage]
     SKIP --> MONITOR[Continue Monitoring]
+    
+    %% Health Monitoring
+    SEND --> HEALTH_UPDATE[Update Health Statistics]
+    SKIP --> HEALTH_UPDATE
+    HEALTH_UPDATE --> HEALTH_ENDPOINT[Health Endpoint Available]
 ```
 
 **Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
-
-## Key System Components
-
-### Tasks
-- **Sensor Task**: Reads AHT21 and ENS160 sensors every 1 minute (configurable)
-- **Network Task**: Handles HTTP transmission to server with configurable retry logic
-- **Monitor Task**: System health monitoring and statistics collection
-- **Watchdog Task**: Prevents system hangs and provides recovery mechanisms
-- **Heartbeat Task**: Sensor health monitoring
-
-### Data Flow
-1. **Sensor Reading**: AHT21 → ENS160 (environmental compensation)
-2. **Data Validation**: Threshold checking for AQI, TVOC, eCO2 (all configurable)
-3. **Queue Management**: Inter-task communication via FreeRTOS queues
-4. **Network Transmission**: HTTP POST with configurable retry logic
-5. **Database Storage**: Server-side data persistence
-
-### Error Handling
-- **Sensor Failures**: Automatic reset and recovery mechanisms
-- **Network Failures**: Configurable retry logic and timeout settings
-- **System Monitoring**: Watchdog and heartbeat protection
-
-### User Configuration
-All system parameters are configurable via settings.json:
-- **Sensor reading intervals**: How frequently sensors are read
-- **Network transmission intervals**: How often data is sent to server
-- **Validation thresholds**: Acceptable ranges for all sensor data
-- **Retry logic**: Network retry attempts and delays
-- **WiFi settings**: SSID, password, and connection timeouts
-- **Server settings**: URL, request timeouts, and authentication 

@@ -7,12 +7,16 @@ idf_component_register(
         "core/I2CManager.cpp"
         "core/config_manager.cpp"
         "core/json_config_provider.cpp"
+        "core/sensor_registry.cpp"
         "sensors/AHT21Sensor.cpp"
         "sensors/ENS160Sensor.cpp"
         "network/wifi_manager.c"
         "network/sntp_manager.c"
         "network/http_client.c"
+        "network/http_server.c"
         "network/secure_credentials.c"
+        "core/health_monitor.cpp"
+        "network/health_server.cpp"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi
              esp_http_client

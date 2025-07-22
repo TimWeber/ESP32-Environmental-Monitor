@@ -87,6 +87,12 @@ public:
     bool isReady();
     
     /**
+     * @brief Check if sensor is initialised
+     * @return true if initialised, false otherwise
+     */
+    bool isInitialised() const { return initialised_; }
+    
+    /**
      * @brief Get sensor status byte
      * @return Status byte from sensor
      * @throws std::runtime_error if communication fails

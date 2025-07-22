@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "config_manager.hpp"
+#include "health_monitor.hpp"
 #include <memory>
 #include <atomic>
 #include <string>
@@ -16,6 +17,7 @@
 class I2CManager;
 class AHT21Sensor;
 class ENS160Sensor;
+class HealthServer;
 
 /**
  * @brief Sensor data structure for inter-task communication
@@ -140,6 +142,10 @@ private:
     SensorHealthStatus ens160Health_;
     std::atomic<bool> heartbeatTaskRunning_;
     
+    // Health monitoring
+    std::shared_ptr<HealthMonitor> healthMonitor_;
+    std::unique_ptr<HealthServer> healthServer_;
+    
     // Expected sensor IDs
     static constexpr uint16_t AHT21_EXPECTED_STATUS_MASK = 0x08;  // Calibrated bit
     static constexpr uint16_t ENS160_EXPECTED_PART_ID = 0x0160;
@@ -211,4 +217,9 @@ public:
     // Enable move constructor and assignment operator
     RTOSManager(RTOSManager&& other) noexcept;
     RTOSManager& operator=(RTOSManager&& other) noexcept;
+
+    // Method to set health monitor from outside
+    void setHealthMonitor(std::shared_ptr<HealthMonitor> healthMonitor) {
+        healthMonitor_ = healthMonitor;
+    }
 }; 

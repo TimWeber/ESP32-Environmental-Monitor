@@ -1,20 +1,36 @@
 #include "http_client.h"
-#include "esp_http_client.h"
+#include "secure_credentials.h"
 #include "esp_log.h"
+#include "esp_http_client.h"
 #include "cJSON.h"
-#include "esp_system.h"
-#include "esp_timer.h"
-#include <time.h>
+#include <string.h>
+#include <stdio.h>
 #include <math.h>
-#include <stdlib.h>
+#include <time.h>
 
-static const char* TAG = "HTTP";
-static const char* deviceName = "ESP32_Sensor_01";
+static const char* TAG = "HTTP_CLIENT";
 
-static char serverUrl[256] = "http://your-server.local:8080/api/data";
+// Global variables
+const char* deviceName = "ESP32_Sensor_01";
+const char* serverUrl = "http://your-server.local:8080/api/data";
 
+// Health monitoring integration
+// To integrate health monitoring, add this to your HTTP request handler:
+/*
+extern HealthServer* g_healthServer;  // Global health server instance
 
+// In your HTTP request processing function:
+if (g_healthServer && g_healthServer->isHealthRequest(request_data)) {
+    std::string response = g_healthServer->handleHealthRequest(request_data);
+    // Send response back to client
+    return response;
+}
+*/
 
+// HTTP client handle for reuse
+static esp_http_client_handle_t g_http_client = NULL;
+
+// HTTP event handler function
 static esp_err_t httpEventHandler(esp_http_client_event_t *evt)
 {
     switch(evt->event_id) {
@@ -45,6 +61,41 @@ static esp_err_t httpEventHandler(esp_http_client_event_t *evt)
     }
     return ESP_OK;
 }
+
+esp_err_t http_client_init(void) {
+    ESP_LOGI(TAG, "Initialising HTTP client");
+    
+    // Create HTTP client configuration
+    esp_http_client_config_t config = {
+        .url = serverUrl,
+        .event_handler = httpEventHandler,
+        .timeout_ms = 15000,
+        .buffer_size = 2048,
+        .buffer_size_tx = 2048,
+    };
+    
+    g_http_client = esp_http_client_init(&config);
+    if (g_http_client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialise HTTP client");
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "HTTP client initialised successfully");
+    return ESP_OK;
+}
+
+void http_client_deinit(void) {
+    if (g_http_client) {
+        esp_http_client_cleanup(g_http_client);
+        g_http_client = NULL;
+        ESP_LOGI(TAG, "HTTP client deinitialised");
+    }
+}
+
+bool sendSensorDataToDatabaseDefault(const sensorDatabaseData_t *sensorData) {
+    return sendSensorDataToDatabase(sensorData, 0, NULL, 0, 0, 0, 0, 0, 0);
+}
+
 
 // Consolidated function that handles all sensor data transmission scenarios
 bool sendSensorDataToDatabase(const sensorDatabaseData_t *sensorData,
@@ -178,6 +229,73 @@ bool sendSensorDataToDatabase(const sensorDatabaseData_t *sensorData,
 
     cJSON_Delete(root);
     free(postData);
+    esp_http_client_cleanup(client);
+    
+    return success;
+}
+
+// New handshake function
+bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, const char* serverUrl, uint32_t timeoutMs) {
+    // Build the handshake URL
+    char handshakeUrl[256];
+    snprintf(handshakeUrl, sizeof(handshakeUrl), "%s/api/handshake", serverUrl);
+    
+    esp_http_client_config_t config = {
+        .url = handshakeUrl,
+        .timeout_ms = timeoutMs,
+    };
+    
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Failed to create HTTP client for handshake");
+        return false;
+    }
+    
+    // Get current timestamp
+    time_t now;
+    time(&now);
+    char timestamp_str[64];
+    strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+    
+    // Create JSON payload
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "sensor_id", sensorId);
+    cJSON_AddStringToObject(root, "esp32_ip", esp32Ip);
+    cJSON_AddStringToObject(root, "device_name", deviceName);
+    cJSON_AddStringToObject(root, "timestamp", timestamp_str);
+    cJSON_AddBoolToObject(root, "persistent_id", true); // Indicate this is a persistent ID
+    
+    char* json_string = cJSON_Print(root);
+    if (!json_string) {
+        ESP_LOGE(TAG, "Failed to create JSON for handshake");
+        cJSON_Delete(root);
+        esp_http_client_cleanup(client);
+        return false;
+    }
+    
+    // Set headers
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_post_field(client, json_string, strlen(json_string));
+    
+    // Send request
+    esp_err_t err = esp_http_client_perform(client);
+    int status_code = esp_http_client_get_status_code(client);
+    int content_length = esp_http_client_get_content_length(client);
+    
+    ESP_LOGI(TAG, "Handshake HTTP Status = %d, content_length = %d", status_code, content_length);
+    
+    bool success = (err == ESP_OK && status_code == 200);
+    
+    if (success) {
+        ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId, esp32Ip);
+    } else {
+        ESP_LOGE(TAG, "Handshake failed - status: %d, error: %s", status_code, esp_err_to_name(err));
+    }
+    
+    // Cleanup
+    free(json_string);
+    cJSON_Delete(root);
     esp_http_client_cleanup(client);
     
     return success;

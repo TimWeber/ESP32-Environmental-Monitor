@@ -304,3 +304,23 @@ bool wifi_manager_connect_and_wait_from_config(const char* config_path)
     return wifi_manager_connect_and_wait(timeout_ms);
 }
 
+// Add this function to get ESP32 IP address
+const char* wifi_get_ip_string(void) {
+    static char ip_str[16];
+    esp_netif_ip_info_t ip_info;
+    
+    if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info) == ESP_OK) {
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+        return ip_str;
+    }
+    
+    return "0.0.0.0";
+}
+
+// Add this to your WiFi connection success callback
+void wifi_connection_success_callback(void) {
+    ESP_LOGI("WIFI", "Connected to WiFi");
+    ESP_LOGI("WIFI", "ESP32 IP Address: %s", wifi_get_ip_string());
+    ESP_LOGI("WIFI", "Health endpoint available at: http://%s/api/health", wifi_get_ip_string());
+}
+

@@ -60,13 +60,25 @@ void ENS160Sensor::initialise() {
     // Initial delay
     vTaskDelay(pdMS_TO_TICKS(ENS160_STARTUP_DELAY_MS));
     
-    try {
-        // Verify part ID
-        uint16_t partId = getPartId();
-        ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
-        if (partId != ENS160_PART_ID) {
-            throw std::runtime_error("Invalid ENS160 Part ID");
+    // Verify part ID
+    uint16_t partId = getPartId();
+    ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
+    if (partId != ENS160_PART_ID) {
+        ESP_LOGW(TAG, "Invalid ENS160 Part ID - continuing without sensor");
+        
+        // Clean up device handle
+        if (deviceHandle_) {
+            esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+            if (rm_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to remove ENS160 device: %s", esp_err_to_name(rm_err));
+            }
+            deviceHandle_ = nullptr;
         }
+        
+        // Don't throw exception - just mark as not initialised
+        initialised_ = false;
+        return;
+    }
         
         // Reset the sensor first to ensure clean state
         ESP_LOGI(TAG, "Resetting ENS160 sensor...");
@@ -95,25 +107,16 @@ void ENS160Sensor::initialise() {
         initialised_ = true;
         startupTime_ = xTaskGetTickCount();
         ESP_LOGI(TAG, "ENS160 initialised successfully - warmup will continue in background");
-        
-    } catch (...) {
-        if (deviceHandle_) {
-            ESP_LOGI(TAG, "Removing ENS160 device due to initialisation failure");
-            esp_err_t err = i2c_master_bus_rm_device(deviceHandle_);
-            if (err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to remove ENS160 device: %s", esp_err_to_name(err));
-            }
-            deviceHandle_ = nullptr;
-        }
-        throw;
-    }
 }
 
 void ENS160Sensor::initialiseFromConfig(const char* configPath) {
     ESP_LOGI(TAG, "Initialising ENS160 sensor from config: %s", configPath);
     
-
     initialise();
+    
+    if (!initialised_) {
+        ESP_LOGW(TAG, "ENS160 sensor initialisation failed - system will continue without this sensor");
+    }
 }
 
 void ENS160Sensor::setValidationThresholds(uint8_t aqiMin, uint8_t aqiMax, 
