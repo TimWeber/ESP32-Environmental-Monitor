@@ -60,10 +60,11 @@ bool sendSensorDataToDatabaseDefault(const sensorDatabaseData_t *sensorData);
  * 
  * @param sensorId Sensor ID
  * @param esp32Ip ESP32 IP address
+ * @param serverUrl Server URL for handshake
  * @param timeoutMs HTTP timeout in milliseconds (0 for default)
  * @return true if handshake successful, false otherwise
  */
-bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, uint32_t timeoutMs);
+bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, const char* serverUrl, uint32_t timeoutMs);
 
 /**
  * @brief Initialise HTTP client configuration

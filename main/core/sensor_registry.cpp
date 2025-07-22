@@ -12,8 +12,8 @@ const char* SensorRegistry::SENSOR_ID_KEY = "sensor_id";
 const char* SensorRegistry::REGISTRATION_TIMESTAMP_KEY = "reg_timestamp";
 const char* SensorRegistry::SERVER_URL_KEY = "server_url";
 
-SensorRegistry::SensorRegistry()
-    : registration_timestamp_(0), is_registered_(false) {
+SensorRegistry::SensorRegistry(std::shared_ptr<ConfigManager> configManager)
+    : registration_timestamp_(0), is_registered_(false), config_manager_(configManager) {
 }
 
 SensorRegistry::~SensorRegistry() {
@@ -33,6 +33,20 @@ esp_err_t SensorRegistry::initialise() {
     }
     
     if (err == ESP_OK) {
+        // If we have a config manager and no server URL, load it from configuration
+        if (config_manager_ && server_url_.empty()) {
+            server_url_ = config_manager_->getServerUrl();
+            if (!server_url_.empty()) {
+                ESP_LOGI(TAG, "Loaded server URL from configuration: %s", server_url_.c_str());
+                // Save the loaded URL to NVS for future use
+                writeToNVS();
+            } else {
+                ESP_LOGW(TAG, "No server URL found in configuration");
+            }
+        } else if (!config_manager_) {
+            ESP_LOGW(TAG, "No configuration manager provided - server URL must be set manually");
+        }
+        
         ESP_LOGI(TAG, "Sensor registry initialised - ID: %s, Registered: %s", 
                  sensor_id_.c_str(), is_registered_ ? "yes" : "no");
     } else {
@@ -80,7 +94,8 @@ esp_err_t SensorRegistry::readFromNVS() {
         }
         delete[] url_buffer;
     } else {
-        server_url_ = "http://media.local:8080";
+        // Server URL not found in NVS - will be set later from configuration
+        ESP_LOGW(TAG, "Server URL not found in NVS - will be set from configuration");
     }
     
     nvs_close(nvs_handle);

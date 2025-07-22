@@ -235,9 +235,13 @@ bool sendSensorDataToDatabase(const sensorDatabaseData_t *sensorData,
 }
 
 // New handshake function
-bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, uint32_t timeoutMs) {
+bool sendHandshakeToServer(const char* sensorId, const char* esp32Ip, const char* serverUrl, uint32_t timeoutMs) {
+    // Build the handshake URL
+    char handshakeUrl[256];
+    snprintf(handshakeUrl, sizeof(handshakeUrl), "%s/api/handshake", serverUrl);
+    
     esp_http_client_config_t config = {
-        .url = "http://media.local:8080/api/handshake",
+        .url = handshakeUrl,
         .timeout_ms = timeoutMs,
     };
     

@@ -28,15 +28,27 @@ void AHT21Sensor::initialise() {
     // Initial delay
     vTaskDelay(pdMS_TO_TICKS(AHT21_INIT_DELAY_MS));
     
-    try {
-        // First, check if device is present by trying to read status
-        uint8_t status;
-        esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "AHT21 device not responding at address 0x%02X: %s", 
-                     AHT21_ADDRESS, esp_err_to_name(err));
-            throw std::runtime_error("AHT21 device not found or not responding");
+    // First, check if device is present by trying to read status
+    uint8_t status;
+    esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "AHT21 device not responding at address 0x%02X: %s", 
+                 AHT21_ADDRESS, esp_err_to_name(err));
+        ESP_LOGW(TAG, "AHT21 sensor not found - continuing without sensor");
+        
+        // Clean up device handle
+        if (deviceHandle_) {
+            esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+            if (rm_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+            }
+            deviceHandle_ = nullptr;
         }
+        
+        // Don't throw exception - just mark as not initialised
+        initialised_ = false;
+        return;
+    }
         
         ESP_LOGI(TAG, "AHT21 device found at address 0x%02X", AHT21_ADDRESS);
         
@@ -60,31 +72,36 @@ void AHT21Sensor::initialise() {
             status = getStatus();
             ESP_LOGI(TAG, "AHT21 status after initialisation: 0x%02X", status);
             
-            if (!(status & AHT21_STATUS_CALIBRATED)) {
-                throw std::runtime_error("AHT21 failed to calibrate");
+                    if (!(status & AHT21_STATUS_CALIBRATED)) {
+            ESP_LOGW(TAG, "AHT21 failed to calibrate - continuing without sensor");
+            
+            // Clean up device handle
+            if (deviceHandle_) {
+                esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+                if (rm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+                }
+                deviceHandle_ = nullptr;
             }
+            
+            // Don't throw exception - just mark as not initialised
+            initialised_ = false;
+            return;
         }
-        
-        initialised_ = true;
-        ESP_LOGI(TAG, "AHT21 initialised successfully");
-        
-    } catch (...) {
-        if (deviceHandle_) {
-            ESP_LOGI(TAG, "Removing AHT21 device due to initialisation failure");
-            esp_err_t err = i2c_master_bus_rm_device(deviceHandle_);
-            if (err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(err));
-            }
-            deviceHandle_ = nullptr;
-        }
-        throw;
     }
+    
+    initialised_ = true;
+    ESP_LOGI(TAG, "AHT21 initialised successfully");
 }
 
 void AHT21Sensor::initialiseFromConfig(const char* configPath) {
     ESP_LOGI(TAG, "Initialising AHT21 sensor from config: %s", configPath);
     
     initialise();
+    
+    if (!initialised_) {
+        ESP_LOGW(TAG, "AHT21 sensor initialisation failed - system will continue without this sensor");
+    }
 }
 
 AHT21Data AHT21Sensor::readData() {

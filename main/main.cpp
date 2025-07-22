@@ -142,25 +142,25 @@ extern "C" void app_main() {
         
         // Initialise sensors with config
         ESP_LOGI(TAG, "Initialising AHT21 sensor...");
-        try {
-            aht21Sensor->initialiseFromConfig(configPath);
-            ESP_LOGI(TAG, "AHT21 sensor initialized successfully");
-        } catch (const std::exception& e) {
-            ESP_LOGE(TAG, "Failed to initialize AHT21 sensor: %s", e.what());
-            ESP_LOGE(TAG, "Check if AHT21 sensor is properly connected to I2C bus");
+        aht21Sensor->initialiseFromConfig(configPath);
+        
+        if (!aht21Sensor->isInitialised()) {
+            ESP_LOGW(TAG, "AHT21 sensor initialisation failed - continuing without sensor");
             aht21Sensor.reset(); // Remove the failed sensor
+        } else {
+            ESP_LOGI(TAG, "AHT21 sensor initialised successfully");
         }
         esp_task_wdt_reset(); // Feed watchdog
         
         if (ens160Sensor) {
             ESP_LOGI(TAG, "Initialising ENS160 sensor...");
-            try {
-                ens160Sensor->initialiseFromConfig(configPath);
-                ESP_LOGI(TAG, "ENS160 sensor initialized successfully");
-            } catch (const std::exception& e) {
-                ESP_LOGE(TAG, "Failed to initialize ENS160 sensor: %s", e.what());
-                ESP_LOGE(TAG, "Check if ENS160 sensor is properly connected to I2C bus");
+            ens160Sensor->initialiseFromConfig(configPath);
+            
+            if (!ens160Sensor->isInitialised()) {
+                ESP_LOGW(TAG, "ENS160 sensor initialisation failed - continuing without sensor");
                 ens160Sensor.reset(); // Remove the failed sensor
+            } else {
+                ESP_LOGI(TAG, "ENS160 sensor initialised successfully");
             }
         }
         esp_task_wdt_reset(); // Feed watchdog
@@ -184,14 +184,27 @@ extern "C" void app_main() {
         if (http_ret == ESP_OK) {
             ESP_LOGI(TAG, "HTTP server initialised successfully");
             
-            // Initialise sensor registry for persistent sensor IDs
+            // Create configuration manager first
+            auto configProvider = createConfigProvider(configPath);
+            if (!configProvider) {
+                ESP_LOGE(TAG, "Failed to create configuration provider");
+                throw std::runtime_error("Configuration provider creation failed");
+            }
+            
+            auto configManager = std::make_shared<ConfigManager>(std::move(configProvider));
+            
+            // Initialise sensor registry with configuration dependency
             ESP_LOGI(TAG, "Initialising sensor registry...");
-            g_sensorRegistry = std::make_unique<SensorRegistry>();
+            g_sensorRegistry = std::make_unique<SensorRegistry>(configManager);
             esp_err_t registry_ret = g_sensorRegistry->initialise();
             if (registry_ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to initialise sensor registry: %s", esp_err_to_name(registry_ret));
             } else {
                 ESP_LOGI(TAG, "Sensor registry initialised - ID: %s", g_sensorRegistry->getSensorId().c_str());
+                
+                if (!g_sensorRegistry->isConfigured()) {
+                    ESP_LOGW(TAG, "Sensor registry not fully configured - some features may not work");
+                }
             }
             
             // Initialise health monitoring system
@@ -218,13 +231,17 @@ extern "C" void app_main() {
         // Update health monitor with sensor status using existing sensors
         if (g_healthMonitor) {
             // Check sensor connections based on existing sensor instances
-            bool aht21_connected = (aht21Sensor != nullptr);
-            bool ens160_connected = (ens160Sensor != nullptr);
+            bool aht21_connected = (aht21Sensor != nullptr && aht21Sensor->isInitialised());
+            bool ens160_connected = (ens160Sensor != nullptr && ens160Sensor->isInitialised());
             
             g_healthMonitor->updateSensorStatus(aht21_connected, ens160_connected);
             ESP_LOGI(TAG, "Health monitor updated with sensor status: AHT21=%s, ENS160=%s", 
                       aht21_connected ? "connected" : "disconnected",
                       ens160_connected ? "connected" : "disconnected");
+            
+            if (!aht21_connected && !ens160_connected) {
+                ESP_LOGW(TAG, "No sensors connected - system will operate in limited mode");
+            }
             
             // Set initial sensor states
             g_healthMonitor->updateSensorStates("ready", "warm_up");
@@ -255,16 +272,20 @@ extern "C" void app_main() {
         const char* esp32Ip = wifi_manager_get_ip();
         std::string sensorId = g_sensorRegistry ? g_sensorRegistry->getSensorId() : "sensor_unknown";
         
-        if (sendHandshakeToServer(sensorId.c_str(), esp32Ip, 10000)) {
+        // Get server URL from sensor registry
+        std::string serverUrl = g_sensorRegistry ? g_sensorRegistry->getServerUrl() : "";
+        if (serverUrl.empty()) {
+            ESP_LOGW(TAG, "Server URL not configured - skipping handshake");
+        } else if (sendHandshakeToServer(sensorId.c_str(), esp32Ip, serverUrl.c_str(), 10000)) {
             ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId.c_str(), esp32Ip);
-            ESP_LOGI(TAG, "Health data available at: http://media.local/api/%s", sensorId.c_str());
+            ESP_LOGI(TAG, "Health data available at: http://your-server.local/api/%s", sensorId.c_str());
             
             // Mark as registered in the registry
             if (g_sensorRegistry) {
                 // The registry will remember this sensor ID across reboots
                 ESP_LOGI(TAG, "Sensor ID %s will be remembered across reboots", sensorId.c_str());
             }
-        } else {
+        } else if (!serverUrl.empty()) {
             ESP_LOGW(TAG, "Handshake failed - sensor may not be registered with server");
         }
         
