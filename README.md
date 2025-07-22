@@ -19,9 +19,8 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **Calibration**: Configurable sensor calibration and validation
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
-
-
 ## Architecture
+
 
 ### Data Flow
 ```mermaid
@@ -78,6 +77,7 @@ graph TD
 ### Task Structure
 
 ```mermaid
+
 graph LR
     subgraph "Core Tasks"
         SENSOR[Sensor Task<br/>• Read sensors<br/>• Validate data<br/>• Update health stats]
@@ -101,11 +101,14 @@ graph LR
     end
     
     %% Core task relationships
+
+
     SENSOR --> QUEUE
     QUEUE --> NETWORK
     SENSOR --> EVENTS
     NETWORK --> EVENTS
     MONITOR --> EVENTS
+
     HEARTBEAT --> EVENTS
     
     %% Health monitoring relationships
