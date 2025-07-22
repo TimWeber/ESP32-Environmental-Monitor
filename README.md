@@ -19,11 +19,7 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **Calibration**: Configurable sensor calibration and validation
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
-### Health Monitoring
-- **Real-time Statistics**: Tracks sensor readings, network transmissions, and errors
-- **System Health**: Monitors sensor connectivity, success rates, and system uptime
-- **HTTP Endpoint**: On-demand health data via `GET /api/health`
-- **Thread-safe**: Uses FreeRTOS mutexes for concurrent access
+
 
 ## Architecture
 
@@ -40,35 +36,43 @@ graph TD
     
     I[Configuration] -->|JSON| J[Config Manager]
     J --> K[RTOS Manager]
+    J --> L[Sensor Registry]
     K --> D
     K --> G
     
-    L[WiFi Manager] -->|Credentials| G
-    M[Secure Storage] -->|NVS| L
+    M[WiFi Manager] -->|Credentials| G
+    N[Secure Storage] -->|NVS| M
     
-    N[Monitor Task] -->|Health Check| K
-    N -->|Statistics| O[System Stats]
+    O[Monitor Task] -->|Health Check| K
+    O -->|Statistics| P[System Stats]
     
-    P[SNTP Manager] -->|Time Sync| G
+    Q[SNTP Manager] -->|Time Sync| G
     
     %% Health Monitoring Components
-    D -->|Health Stats| Q[Health Monitor]
-    G -->|Health Stats| Q
-    Q --> R[Health Server]
-    R -->|HTTP GET| S[Health Endpoint]
+    D -->|Health Stats| R[Health Monitor]
+    G -->|Health Stats| R
+    R --> S[Health Server]
+    S -->|HTTP GET| T[Health Endpoint]
+    
+    %% Heartbeat Monitoring
+    U[Heartbeat Task] -->|Status Check| A
+    U -->|Status Check| C
+    U -->|Sensor Health| K
     
     style A fill:#e1f5fe
     style C fill:#e1f5fe
     style B fill:#f3e5f5
     style D fill:#fff3e0
     style G fill:#fff3e0
-    style N fill:#fff3e0
+    style O fill:#fff3e0
+    style U fill:#fff3e0
     style H fill:#e8f5e8
     style J fill:#fce4ec
-    style M fill:#fce4ec
-    style Q fill:#fff8e1
+    style L fill:#fce4ec
+    style N fill:#fce4ec
     style R fill:#fff8e1
-    style S fill:#e8f5e8
+    style S fill:#fff8e1
+    style T fill:#e8f5e8
 ```
 
 ### Task Structure
@@ -79,11 +83,12 @@ graph LR
         SENSOR[Sensor Task<br/>• Read sensors<br/>• Validate data<br/>• Update health stats]
         NETWORK[Network Task<br/>• HTTP transmission<br/>• Retry logic<br/>• Update health stats]
         MONITOR[Monitor Task<br/>• System health<br/>• Statistics<br/>• Diagnostics]
+        HEARTBEAT[Heartbeat Task<br/>• Sensor health monitoring<br/>• Status checks<br/>• Failure detection]
     end
     
     subgraph "Health System"
         HEALTH_MONITOR[Health Monitor<br/>• Statistics collection<br/>• Thread-safe counters]
-        HEALTH_SERVER[Health Server<br/>• HTTP endpoint<br/>• GET /api/health]
+        HEALTH_SERVER[Health Server<br/>• HTTP endpoint<br/>• GET /api/sensor#]
     end
     
     subgraph "System Protection"
@@ -101,16 +106,19 @@ graph LR
     SENSOR --> EVENTS
     NETWORK --> EVENTS
     MONITOR --> EVENTS
+    HEARTBEAT --> EVENTS
     
     %% Health monitoring relationships
     SENSOR --> HEALTH_MONITOR
     NETWORK --> HEALTH_MONITOR
+    HEARTBEAT --> HEALTH_MONITOR
     HEALTH_MONITOR --> HEALTH_SERVER
     
     %% Protection relationships
     WATCHDOG --> SENSOR
     WATCHDOG --> NETWORK
     WATCHDOG --> MONITOR
+    WATCHDOG --> HEARTBEAT
     
     %% Styling
     classDef coreTask fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
@@ -118,7 +126,7 @@ graph LR
     classDef protection fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef communication fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
     
-    class SENSOR,NETWORK,MONITOR coreTask
+    class SENSOR,NETWORK,MONITOR,HEARTBEAT coreTask
     class HEALTH_MONITOR,HEALTH_SERVER healthTask
     class WATCHDOG protection
     class QUEUE,EVENTS communication
@@ -148,6 +156,11 @@ gantt
     section Monitor Task
     Health Check     :health, 2024-01-01, 10s
     Statistics       :stats, after health, 10s
+    
+    section Heartbeat Task
+    Sensor Health    :heartbeat, 2024-01-01, 30s
+    Status Check     :status, after heartbeat, 10s
+    Failure Detect   :failure, after status, 5s
     
     section Health Monitoring
     Stats Collection :stats_collect, 2024-01-01, 30s
@@ -290,41 +303,3 @@ flowchart TD
 ```
 
 **Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
-
-## Key System Components
-
-### Tasks
-- **Sensor Task**: Reads AHT21 and ENS160 sensors every 5 minutes (configurable), updates health statistics
-- **Network Task**: Handles HTTP transmission to server with configurable retry logic, updates health statistics
-- **Monitor Task**: System health monitoring and statistics collection
-- **Watchdog Task**: Prevents system hangs and provides recovery mechanisms
-- **Heartbeat Task**: Sensor health monitoring
-
-### Health Monitoring Components
-- **Health Monitor**: Thread-safe statistics collection and JSON generation
-- **Health Server**: HTTP endpoint for on-demand health data access
-- **Health Statistics**: Real-time tracking of system performance and sensor health
-
-### Data Flow
-1. **Sensor Reading**: AHT21/ ENS160 (environmental compensation)
-2. **Data Validation**: Threshold checking for AQI, TVOC, eCO2 (all configurable)
-3. **Queue Management**: Inter-task communication via FreeRTOS queues
-4. **Network Transmission**: HTTP POST with configurable retry logic
-5. **Health Monitoring**: Real-time statistics collection and endpoint access
-6. **Database Storage**: Server-side data persistence
-
-### Error Handling
-- **Sensor Failures**: Automatic reset and recovery mechanisms
-- **Network Failures**: Configurable retry logic and timeout settings
-- **System Monitoring**: Watchdog and heartbeat protection
-- **Health Tracking**: Comprehensive error rate monitoring
-
-### User Configuration
-All system parameters are configurable via settings.json:
-- **Sensor reading intervals**: How frequently sensors are read
-- **Network transmission intervals**: How often data is sent to server
-- **Validation thresholds**: Acceptable ranges for all sensor data
-- **Retry logic**: Network retry attempts and delays
-- **WiFi settings**: SSID, password, and connection timeouts
-- **Server settings**: URL, request timeouts, and authentication
-- **Health monitoring**: Success rate thresholds and alerting
