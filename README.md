@@ -21,7 +21,7 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 
 ## Architecture
 
-### **Unified Sensor Management**
+### ** Sensor Management**
 
 ```mermaid
 graph TD
