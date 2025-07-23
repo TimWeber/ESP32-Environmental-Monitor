@@ -19,12 +19,9 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **Calibration**: Configurable sensor calibration and validation
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
-## Simplified Project Structure
-
-
 ## Architecture
 
-### **Unified Sensor Management**
+### **Sensor Management**
 
 ```mermaid
 graph TD
@@ -96,6 +93,75 @@ graph TD
     style T fill:#fff8e1
     style U fill:#e8f5e8
 ```
+### **Sensor Data Validation Flow**
+
+```mermaid
+flowchart TD
+    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data via SensorManager]
+    
+    %% AHT21 Flow (Left Side)
+    START --> A1[Read AHT21 Data]
+    A1 --> B1{AHT21 Valid?}
+    B1 -->|Yes| C1[Check Temperature Range]
+    B1 -->|No| D1[Log AHT21 Warning]
+    
+    C1 --> E1{Temperature in Range?}
+    E1 -->|Yes| F1[Check Humidity Range]
+    E1 -->|No| G1[Mark AHT21 Invalid]
+    
+    F1 --> H1{Humidity in Range?}
+    H1 -->|Yes| I1[AHT21 Data Accepted]
+    H1 -->|No| G1
+    
+    I1 --> J1[Set Environmental Compensation]
+    J1 --> K1[Send AHT21 Data to Network]
+    G1 --> L1[Skip AHT21 Database Post]
+    D1 --> L1
+    
+    %% ENS160 Flow (Right Side)
+    START --> A2[Read ENS160 Data]
+    A2 --> B2{ENS160 Valid?}
+    B2 -->|Yes| C2[Check AQI Range]
+    B2 -->|No| D2[Log ENS160 Warning]
+    
+    C2 --> E2{AQI in Range?}
+    E2 -->|Yes| F2[Check TVOC Range]
+    E2 -->|No| G2[Mark ENS160 Invalid]
+    
+    F2 --> H2{TVOC in Range?}
+    H2 -->|Yes| I2[Check eCO2 Range]
+    H2 -->|No| G2
+    
+    I2 --> J2{eCO2 in Range?}
+    J2 -->|Yes| K2[ENS160 Data Accepted]
+    J2 -->|No| G2
+    
+    K2 --> L2[Send ENS160 Data to Network]
+    G2 --> M2[Skip ENS160 Database Post]
+    D2 --> M2
+    
+    %% Combined Results
+    K1 --> COMBINE[Combine Data]
+    L2 --> COMBINE
+    L1 --> COMBINE
+    M2 --> COMBINE
+    
+    COMBINE --> VALIDATE{Any Invalid Data?}
+    VALIDATE -->|No| SEND[Send to Network Task]
+    VALIDATE -->|Yes| SKIP[Skip Database Post]
+    
+    SEND --> HTTP[HTTP POST to Server]
+    HTTP --> DB[Database Storage]
+    SKIP --> MONITOR[Continue Monitoring]
+    
+    %% Health Monitoring
+    SEND --> HEALTH_UPDATE[Update Health Statistics]
+    SKIP --> HEALTH_UPDATE
+    HEALTH_UPDATE --> HEALTH_ENDPOINT[Health Endpoint Available]
+```
+
+**Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
+
 
 ### **Task Structure**
 
@@ -256,71 +322,3 @@ GET /api/health
 }
 ```
 
-### **Sensor Data Validation Flow**
-
-```mermaid
-flowchart TD
-    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data via SensorManager]
-    
-    %% AHT21 Flow (Left Side)
-    START --> A1[Read AHT21 Data]
-    A1 --> B1{AHT21 Valid?}
-    B1 -->|Yes| C1[Check Temperature Range]
-    B1 -->|No| D1[Log AHT21 Warning]
-    
-    C1 --> E1{Temperature in Range?}
-    E1 -->|Yes| F1[Check Humidity Range]
-    E1 -->|No| G1[Mark AHT21 Invalid]
-    
-    F1 --> H1{Humidity in Range?}
-    H1 -->|Yes| I1[AHT21 Data Accepted]
-    H1 -->|No| G1
-    
-    I1 --> J1[Set Environmental Compensation]
-    J1 --> K1[Send AHT21 Data to Network]
-    G1 --> L1[Skip AHT21 Database Post]
-    D1 --> L1
-    
-    %% ENS160 Flow (Right Side)
-    START --> A2[Read ENS160 Data]
-    A2 --> B2{ENS160 Valid?}
-    B2 -->|Yes| C2[Check AQI Range]
-    B2 -->|No| D2[Log ENS160 Warning]
-    
-    C2 --> E2{AQI in Range?}
-    E2 -->|Yes| F2[Check TVOC Range]
-    E2 -->|No| G2[Mark ENS160 Invalid]
-    
-    F2 --> H2{TVOC in Range?}
-    H2 -->|Yes| I2[Check eCO2 Range]
-    H2 -->|No| G2
-    
-    I2 --> J2{eCO2 in Range?}
-    J2 -->|Yes| K2[ENS160 Data Accepted]
-    J2 -->|No| G2
-    
-    K2 --> L2[Send ENS160 Data to Network]
-    G2 --> M2[Skip ENS160 Database Post]
-    D2 --> M2
-    
-    %% Combined Results
-    K1 --> COMBINE[Combine Data]
-    L2 --> COMBINE
-    L1 --> COMBINE
-    M2 --> COMBINE
-    
-    COMBINE --> VALIDATE{Any Invalid Data?}
-    VALIDATE -->|No| SEND[Send to Network Task]
-    VALIDATE -->|Yes| SKIP[Skip Database Post]
-    
-    SEND --> HTTP[HTTP POST to Server]
-    HTTP --> DB[Database Storage]
-    SKIP --> MONITOR[Continue Monitoring]
-    
-    %% Health Monitoring
-    SEND --> HEALTH_UPDATE[Update Health Statistics]
-    SKIP --> HEALTH_UPDATE
-    HEALTH_UPDATE --> HEALTH_ENDPOINT[Health Endpoint Available]
-```
-
-**Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
