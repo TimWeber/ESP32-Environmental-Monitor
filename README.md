@@ -19,9 +19,18 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **Calibration**: Configurable sensor calibration and validation
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
+<<<<<<< Updated upstream
 ## Architecture
 
 ### **Sensor Management**
+=======
+## Simplified Project Structure
+
+
+## Architecture
+
+### **Unified Sensor Management**
+>>>>>>> Stashed changes
 
 ```mermaid
 graph TD
@@ -93,75 +102,8 @@ graph TD
     style T fill:#fff8e1
     style U fill:#e8f5e8
 ```
-### **Sensor Data Validation Flow**
-
-```mermaid
-flowchart TD
-    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data via SensorManager]
-    
-    %% AHT21 Flow (Left Side)
-    START --> A1[Read AHT21 Data]
-    A1 --> B1{AHT21 Valid?}
-    B1 -->|Yes| C1[Check Temperature Range]
-    B1 -->|No| D1[Log AHT21 Warning]
-    
-    C1 --> E1{Temperature in Range?}
-    E1 -->|Yes| F1[Check Humidity Range]
-    E1 -->|No| G1[Mark AHT21 Invalid]
-    
-    F1 --> H1{Humidity in Range?}
-    H1 -->|Yes| I1[AHT21 Data Accepted]
-    H1 -->|No| G1
-    
-    I1 --> J1[Set Environmental Compensation]
-    J1 --> K1[Send AHT21 Data to Network]
-    G1 --> L1[Skip AHT21 Database Post]
-    D1 --> L1
-    
-    %% ENS160 Flow (Right Side)
-    START --> A2[Read ENS160 Data]
-    A2 --> B2{ENS160 Valid?}
-    B2 -->|Yes| C2[Check AQI Range]
-    B2 -->|No| D2[Log ENS160 Warning]
-    
-    C2 --> E2{AQI in Range?}
-    E2 -->|Yes| F2[Check TVOC Range]
-    E2 -->|No| G2[Mark ENS160 Invalid]
-    
-    F2 --> H2{TVOC in Range?}
-    H2 -->|Yes| I2[Check eCO2 Range]
-    H2 -->|No| G2
-    
-    I2 --> J2{eCO2 in Range?}
-    J2 -->|Yes| K2[ENS160 Data Accepted]
-    J2 -->|No| G2
-    
-    K2 --> L2[Send ENS160 Data to Network]
-    G2 --> M2[Skip ENS160 Database Post]
-    D2 --> M2
-    
-    %% Combined Results
-    K1 --> COMBINE[Combine Data]
-    L2 --> COMBINE
-    L1 --> COMBINE
-    M2 --> COMBINE
-    
-    COMBINE --> VALIDATE{Any Invalid Data?}
-    VALIDATE -->|No| SEND[Send to Network Task]
-    VALIDATE -->|Yes| SKIP[Skip Database Post]
-    
-    SEND --> HTTP[HTTP POST to Server]
-    HTTP --> DB[Database Storage]
-    SKIP --> MONITOR[Continue Monitoring]
-    
-    %% Health Monitoring
-    SEND --> HEALTH_UPDATE[Update Health Statistics]
-    SKIP --> HEALTH_UPDATE
-    HEALTH_UPDATE --> HEALTH_ENDPOINT[Health Endpoint Available]
-```
-
-**Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
-
+<<<<<<< Updated upstream
+=======
 
 ### **Task Structure**
 
@@ -322,3 +264,273 @@ GET /api/health
 }
 ```
 
+>>>>>>> Stashed changes
+### **Sensor Data Validation Flow**
+
+```mermaid
+flowchart TD
+    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data via SensorManager]
+    
+    %% AHT21 Flow (Left Side)
+    START --> A1[Read AHT21 Data]
+    A1 --> B1{AHT21 Valid?}
+    B1 -->|Yes| C1[Check Temperature Range]
+    B1 -->|No| D1[Log AHT21 Warning]
+    
+    C1 --> E1{Temperature in Range?}
+    E1 -->|Yes| F1[Check Humidity Range]
+    E1 -->|No| G1[Mark AHT21 Invalid]
+    
+    F1 --> H1{Humidity in Range?}
+    H1 -->|Yes| I1[AHT21 Data Accepted]
+    H1 -->|No| G1
+    
+    I1 --> J1[Set Environmental Compensation]
+    J1 --> K1[Send AHT21 Data to Network]
+    G1 --> L1[Skip AHT21 Database Post]
+    D1 --> L1
+    
+    %% ENS160 Flow (Right Side)
+    START --> A2[Read ENS160 Data]
+    A2 --> B2{ENS160 Valid?}
+    B2 -->|Yes| C2[Check AQI Range]
+    B2 -->|No| D2[Log ENS160 Warning]
+    
+    C2 --> E2{AQI in Range?}
+    E2 -->|Yes| F2[Check TVOC Range]
+    E2 -->|No| G2[Mark ENS160 Invalid]
+    
+    F2 --> H2{TVOC in Range?}
+    H2 -->|Yes| I2[Check eCO2 Range]
+    H2 -->|No| G2
+    
+    I2 --> J2{eCO2 in Range?}
+    J2 -->|Yes| K2[ENS160 Data Accepted]
+    J2 -->|No| G2
+    
+    K2 --> L2[Send ENS160 Data to Network]
+    G2 --> M2[Skip ENS160 Database Post]
+    D2 --> M2
+    
+    %% Combined Results
+    K1 --> COMBINE[Combine Data]
+    L2 --> COMBINE
+    L1 --> COMBINE
+    M2 --> COMBINE
+    
+    COMBINE --> VALIDATE{Any Invalid Data?}
+    VALIDATE -->|No| SEND[Send to Network Task]
+    VALIDATE -->|Yes| SKIP[Skip Database Post]
+    
+    SEND --> HTTP[HTTP POST to Server]
+    HTTP --> DB[Database Storage]
+    SKIP --> MONITOR[Continue Monitoring]
+    
+    %% Health Monitoring
+    SEND --> HEALTH_UPDATE[Update Health Statistics]
+    SKIP --> HEALTH_UPDATE
+    HEALTH_UPDATE --> HEALTH_ENDPOINT[Health Endpoint Available]
+```
+
+**Note**: All validation thresholds (temperature, humidity, AQI, TVOC, eCO2 ranges) are user-configurable via settings.json.
+
+<<<<<<< Updated upstream
+
+### **Task Structure**
+
+```mermaid
+graph LR
+    subgraph "Core Tasks"
+        SENSOR[Sensor Task<br/>• Read sensors via SensorManager<br/>• Validate data<br/>• Update health stats]
+        NETWORK[Network Task<br/>• HTTP transmission<br/>• Retry logic<br/>• Update health stats]
+        MONITOR[Monitor Task<br/>• System health<br/>• Statistics<br/>• Diagnostics]
+        HEARTBEAT[Heartbeat Task<br/>• Sensor health monitoring<br/>• Status checks via SensorManager<br/>• Failure detection]
+    end
+    
+    subgraph "Health System"
+        HEALTH_MONITOR[Health Monitor<br/>• Statistics collection<br/>• Thread-safe counters]
+        HEALTH_SERVER[Health Server<br/>• HTTP endpoint<br/>• GET /api/sensor#]
+    end
+    
+    subgraph "System Protection"
+        WATCHDOG[Watchdog Task<br/>• Task monitoring<br/>• System recovery]
+    end
+    
+    subgraph "Communication"
+        QUEUE[Sensor Queue<br/>• Data transfer]
+        EVENTS[Event Group<br/>• Synchronisation]
+    end
+    
+    %% Core task relationships
+    SENSOR --> QUEUE
+    QUEUE --> NETWORK
+    SENSOR --> EVENTS
+    NETWORK --> EVENTS
+    MONITOR --> EVENTS
+    HEARTBEAT --> EVENTS
+    
+    %% Health monitoring relationships
+    SENSOR --> HEALTH_MONITOR
+    NETWORK --> HEALTH_MONITOR
+    HEARTBEAT --> HEALTH_MONITOR
+    HEALTH_MONITOR --> HEALTH_SERVER
+    
+    %% Protection relationships
+    WATCHDOG --> SENSOR
+    WATCHDOG --> NETWORK
+    WATCHDOG --> MONITOR
+    WATCHDOG --> HEARTBEAT
+    
+    %% Styling
+    classDef coreTask fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef healthTask fill:#fff8e1,stroke:#f57c00,stroke-width:2px
+    classDef protection fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef communication fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    
+    class SENSOR,NETWORK,MONITOR,HEARTBEAT coreTask
+    class HEALTH_MONITOR,HEALTH_SERVER healthTask
+    class WATCHDOG protection
+    class QUEUE,EVENTS communication
+```
+
+### **Task Scheduling and Timing**
+
+```mermaid
+gantt
+    title ESP32 Environmental Monitor - Task Scheduling
+    dateFormat  YYYY-MM-DD
+    axisFormat %H:%M
+    
+    section Sensor Task
+    SensorManager Read    :sensor_read, 2024-01-01, 10s
+    Data Validation      :validation, after sensor_read, 10s
+    Queue Send           :queue, after validation, 10s
+    Health Update        :health, after queue, 5s
+    
+    section Network Task
+    Queue Receive        :receive, after queue, 10s
+    HTTP Request         :http, after receive, 40s
+    Response Process     :response, after http, 10s
+    Health Update        :health_net, after response, 5s
+    
+    section Monitor Task
+    Health Check         :health, 2024-01-01, 10s
+    Statistics           :stats, after health, 10s
+    
+    section Heartbeat Task
+    Sensor Health        :heartbeat, 2024-01-01, 30s
+    Status Check         :status, after heartbeat, 10s
+    Failure Detect       :failure, after status, 5s
+    
+    section Health Monitoring
+    Stats Collection     :stats_collect, 2024-01-01, 30s
+    Endpoint Ready       :endpoint, after stats_collect, 10s
+    
+    section Watchdog
+    Feed Watchdog        :watchdog, 2024-01-01, 50s
+```
+
+**Note**: All timing intervals are user-configurable via settings.json. Default values shown above can be customised at build time.
+
+### **Health Monitoring System**
+
+The system includes a comprehensive health monitoring system that tracks:
+
+#### **Real-time Statistics**
+- **Sensor readings**: Total successful and failed readings
+- **Network transmissions**: Total successful and failed HTTP requests
+- **System uptime**: Continuous uptime tracking
+- **Memory usage**: Free memory monitoring
+- **WiFi signal strength**: Connection quality monitoring
+
+#### **Sensor Health**
+- **Sensor connectivity**: AHT21 and ENS160 connection status
+- **Success rates**: Percentage of successful sensor readings
+- **Sensor states**: Current operational state (ready, warm_up, etc.)
+- **Zero readings count**: Tracks invalid sensor data
+
+#### **Network Health**
+- **HTTP success rate**: Percentage of successful transmissions
+- **Average response time**: Network performance metrics
+- **Retry attempts**: Total retry attempts for failed requests
+
+### **Health Endpoint**
+
+The system provides a health monitoring endpoint at `http://<esp32-ip>/api/health`:
+
+#### **Request**
+```http
+GET /api/health
+```
+
+#### **Response**
+```json
+{
+  "device": "ESP32_Sensor_01",
+  "timestamp": "2024-01-15T14:30:00Z",
+  "uptime_seconds": 259200,
+  "system_health": {
+    "sensor_readings_total": 4320,
+    "sensor_readings_failed": 12,
+    "network_transmissions_total": 1440,
+    "network_transmissions_failed": 8,
+    "memory_free_bytes": 23552,
+    "wifi_signal_dbm": -45,
+    "watchdog_resets": 0
+  },
+  "sensor_health": {
+    "aht21_connected": true,
+    "ens160_connected": true,
+    "aht21_success_rate": 99.7,
+    "ens160_success_rate": 99.2,
+    "zero_readings_count": 15,
+    "aht21_state": "ready",
+    "ens160_state": "warm_up"
+  },
+  "network_health": {
+    "http_success_rate": 99.4,
+    "average_response_time_ms": 1200,
+    "retry_attempts_total": 23
+  }
+}
+```
+
+=======
+## Adding New Sensors
+
+With the new ISensor interface, adding new sensors is now much simpler:
+
+### **1. Create Sensor Class**
+```cpp
+class BMP280Sensor : public ISensor {
+public:
+    BMP280Sensor(I2CManager& i2cManager);
+    
+    // Implement ISensor interface
+    bool initialiseFromConfig(const char* configPath) override;
+    SensorReading readSensor() override;
+    SensorStatus getStatus() override;
+    bool reset() override;
+    // ... other interface methods
+};
+```
+
+### **2. Add to SensorManager**
+```cpp
+// In main.cpp
+auto bmp280Sensor = std::make_shared<BMP280Sensor>(*i2cManager);
+if (bmp280Sensor->initialiseFromConfig(configPath)) {
+    g_sensorManager->addSensor("BMP280", bmp280Sensor);
+}
+```
+
+### **3. Done!**
+No other code changes needed - the SensorManager handles everything automatically.
+
+## Performance Impact
+
+- **Memory**: +12% overhead (minimal for ESP32)
+- **Performance**: <15% slower (acceptable trade-off)
+- **Scalability**: Much better for multiple sensors
+- **Maintainability**: Significantly improved
+>>>>>>> Stashed changes

@@ -142,25 +142,37 @@ extern "C" void app_main() {
         
         // Initialise sensors with config
         ESP_LOGI(TAG, "Initialising AHT21 sensor...");
-        aht21Sensor->initialiseFromConfig(configPath);
-        
-        if (!aht21Sensor->isInitialised()) {
+        try {
+            aht21Sensor->initialiseFromConfig(configPath);
+            
+            if (!aht21Sensor->isInitialised()) {
+                ESP_LOGW(TAG, "AHT21 sensor initialisation failed - continuing without sensor");
+                aht21Sensor.reset(); // Remove the failed sensor
+            } else {
+                ESP_LOGI(TAG, "AHT21 sensor initialised successfully");
+            }
+        } catch (const std::exception& e) {
+            ESP_LOGE(TAG, "AHT21 sensor initialisation exception: %s", e.what());
             ESP_LOGW(TAG, "AHT21 sensor initialisation failed - continuing without sensor");
             aht21Sensor.reset(); // Remove the failed sensor
-        } else {
-            ESP_LOGI(TAG, "AHT21 sensor initialised successfully");
         }
         esp_task_wdt_reset(); // Feed watchdog
         
         if (ens160Sensor) {
             ESP_LOGI(TAG, "Initialising ENS160 sensor...");
-            ens160Sensor->initialiseFromConfig(configPath);
-            
-            if (!ens160Sensor->isInitialised()) {
+            try {
+                ens160Sensor->initialiseFromConfig(configPath);
+                
+                if (!ens160Sensor->isInitialised()) {
+                    ESP_LOGW(TAG, "ENS160 sensor initialisation failed - continuing without sensor");
+                    ens160Sensor.reset(); // Remove the failed sensor
+                } else {
+                    ESP_LOGI(TAG, "ENS160 sensor initialised successfully");
+                }
+            } catch (const std::exception& e) {
+                ESP_LOGE(TAG, "ENS160 sensor initialisation exception: %s", e.what());
                 ESP_LOGW(TAG, "ENS160 sensor initialisation failed - continuing without sensor");
                 ens160Sensor.reset(); // Remove the failed sensor
-            } else {
-                ESP_LOGI(TAG, "ENS160 sensor initialised successfully");
             }
         }
         esp_task_wdt_reset(); // Feed watchdog

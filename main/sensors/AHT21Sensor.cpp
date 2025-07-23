@@ -192,14 +192,19 @@ uint8_t AHT21Sensor::getStatus() {
         throw std::runtime_error("AHT21 device not initialized");
     }
     
-    uint8_t status;
-    esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read AHT21 status: %s", esp_err_to_name(err));
-        throw std::runtime_error("Failed to read AHT21 status: " + std::string(esp_err_to_name(err)));
+    try {
+        uint8_t status;
+        esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read AHT21 status: %s", esp_err_to_name(err));
+            throw std::runtime_error("Failed to read AHT21 status: " + std::string(esp_err_to_name(err)));
+        }
+        
+        return status;
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "AHT21 status read failed: %s", e.what());
+        return 0xFF; // Return invalid status to indicate failure
     }
-    
-    return status;
 }
 
 void AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen) {
@@ -207,23 +212,28 @@ void AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen)
         throw std::runtime_error("AHT21 device not initialized");
     }
     
-    uint8_t buffer[8]; // Maximum command size
-    buffer[0] = cmd;
-    
-    size_t totalLen = 1;
-    if (data && dataLen > 0) {
-        if (dataLen > 7) {
-            throw std::runtime_error("AHT21 command data too long");
+    try {
+        uint8_t buffer[8]; // Maximum command size
+        buffer[0] = cmd;
+        
+        size_t totalLen = 1;
+        if (data && dataLen > 0) {
+            if (dataLen > 7) {
+                throw std::runtime_error("AHT21 command data too long");
+            }
+            memcpy(&buffer[1], data, dataLen);
+            totalLen += dataLen;
         }
-        memcpy(&buffer[1], data, dataLen);
-        totalLen += dataLen;
-    }
-    
-    esp_err_t err = i2c_master_transmit(deviceHandle_, buffer, totalLen, 1000);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "AHT21 write command failed: %s (cmd=0x%02X)", 
-                 esp_err_to_name(err), cmd);
-        throw std::runtime_error("Failed to write AHT21 command: " + std::string(esp_err_to_name(err)));
+        
+        esp_err_t err = i2c_master_transmit(deviceHandle_, buffer, totalLen, 1000);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "AHT21 write command failed: %s (cmd=0x%02X)", 
+                     esp_err_to_name(err), cmd);
+            throw std::runtime_error("Failed to write AHT21 command: " + std::string(esp_err_to_name(err)));
+        }
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "AHT21 write command failed: %s", e.what());
+        throw; // Re-throw the exception
     }
 }
 
@@ -236,9 +246,14 @@ void AHT21Sensor::readData(uint8_t* buffer, size_t len) {
         throw std::runtime_error("AHT21 read buffer is null");
     }
     
-    esp_err_t err = i2c_master_receive(deviceHandle_, buffer, len, 1000);
-    if (err != ESP_OK) {
-        throw std::runtime_error("Failed to read AHT21 data: " + std::string(esp_err_to_name(err)));
+    try {
+        esp_err_t err = i2c_master_receive(deviceHandle_, buffer, len, 1000);
+        if (err != ESP_OK) {
+            throw std::runtime_error("Failed to read AHT21 data: " + std::string(esp_err_to_name(err)));
+        }
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "AHT21 read data failed: %s", e.what());
+        throw; // Re-throw the exception
     }
 }
 

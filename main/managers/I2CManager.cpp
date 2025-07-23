@@ -98,6 +98,7 @@ int I2CManager::scanBus() {
     int devicesFound = 0;
     
     // Only scan addresses where we expect to find devices
+    // This reduces NACK errors significantly
     uint8_t knownAddresses[] = {
         0x38,  // AHT21 temperature/humidity sensor
         0x53,  // ENS160 air quality sensor
@@ -112,7 +113,7 @@ int I2CManager::scanBus() {
         
         esp_err_t err = i2c_master_bus_add_device(busHandle_, &devCfg, &probeHandle);
         if (err == ESP_OK) {
-            // Try to probe the device with a write operation
+            // Try to probe the device with a write operation (less likely to generate NACK errors)
             // Send a single byte to test if device responds
             uint8_t testByte = 0x00;
             err = i2c_master_transmit(probeHandle, &testByte, 1, I2C_MASTER_TIMEOUT_MS);

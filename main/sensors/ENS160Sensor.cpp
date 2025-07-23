@@ -50,35 +50,36 @@ ENS160Sensor& ENS160Sensor::operator=(ENS160Sensor&& other) noexcept {
 void ENS160Sensor::initialise() {
     ESP_LOGI(TAG, "Initialising ENS160 sensor...");
     
-    if (!i2cManager_.isInitialised()) {
-        throw std::runtime_error("I2C manager not initialised");
-    }
-    
-    // Create I2C device
-    i2cManager_.createDevice(ENS160_ADDRESS, &deviceHandle_);
-    
-    // Initial delay
-    vTaskDelay(pdMS_TO_TICKS(ENS160_STARTUP_DELAY_MS));
-    
-    // Verify part ID
-    uint16_t partId = getPartId();
-    ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
-    if (partId != ENS160_PART_ID) {
-        ESP_LOGW(TAG, "Invalid ENS160 Part ID - continuing without sensor");
-        
-        // Clean up device handle
-        if (deviceHandle_) {
-            esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
-            if (rm_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to remove ENS160 device: %s", esp_err_to_name(rm_err));
-            }
-            deviceHandle_ = nullptr;
+    try {
+        if (!i2cManager_.isInitialised()) {
+            throw std::runtime_error("I2C manager not initialised");
         }
         
-        // Don't throw exception - just mark as not initialised
-        initialised_ = false;
-        return;
-    }
+        // Create I2C device
+        i2cManager_.createDevice(ENS160_ADDRESS, &deviceHandle_);
+        
+        // Initial delay
+        vTaskDelay(pdMS_TO_TICKS(ENS160_STARTUP_DELAY_MS));
+        
+        // Verify part ID
+        uint16_t partId = getPartId();
+        ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
+        if (partId != ENS160_PART_ID) {
+            ESP_LOGW(TAG, "Invalid ENS160 Part ID - continuing without sensor");
+            
+            // Clean up device handle
+            if (deviceHandle_) {
+                esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+                if (rm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to remove ENS160 device: %s", esp_err_to_name(rm_err));
+                }
+                deviceHandle_ = nullptr;
+            }
+            
+            // Don't throw exception - just mark as not initialised
+            initialised_ = false;
+            return;
+        }
         
         // Reset the sensor first to ensure clean state
         ESP_LOGI(TAG, "Resetting ENS160 sensor...");
@@ -107,6 +108,22 @@ void ENS160Sensor::initialise() {
         initialised_ = true;
         startupTime_ = xTaskGetTickCount();
         ESP_LOGI(TAG, "ENS160 initialised successfully - warmup will continue in background");
+        
+    } catch (const std::exception& e) {
+        ESP_LOGE(TAG, "ENS160 initialisation failed: %s", e.what());
+        
+        // Clean up device handle if it was created
+        if (deviceHandle_) {
+            esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+            if (rm_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to remove ENS160 device: %s", esp_err_to_name(rm_err));
+            }
+            deviceHandle_ = nullptr;
+        }
+        
+        // Mark as not initialised
+        initialised_ = false;
+    }
 }
 
 void ENS160Sensor::initialiseFromConfig(const char* configPath) {
@@ -348,7 +365,12 @@ bool ENS160Sensor::isNewDataAvailable() {
 }
 
 uint16_t ENS160Sensor::getPartId() {
-    return readRegister16(ENS160_REG_PART_ID);
+    try {
+        return readRegister16(ENS160_REG_PART_ID);
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "Failed to read ENS160 Part ID: %s", e.what());
+        return 0xFFFF; // Return invalid Part ID to indicate failure
+    }
 }
 
 void ENS160Sensor::writeRegister(uint8_t reg, const uint8_t* data, size_t len) {
@@ -403,15 +425,25 @@ void ENS160Sensor::readRegister(uint8_t reg, uint8_t* buffer, size_t len) {
 }
 
 uint8_t ENS160Sensor::readRegister(uint8_t reg) {
-    uint8_t value;
-    readRegister(reg, &value, 1);
-    return value;
+    try {
+        uint8_t value;
+        readRegister(reg, &value, 1);
+        return value;
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X: %s", reg, e.what());
+        return 0xFF; // Return invalid value to indicate failure
+    }
 }
 
 uint16_t ENS160Sensor::readRegister16(uint8_t reg) {
-    uint8_t data[2];
-    readRegister(reg, data, 2);
-    return (uint16_t)data[0] | ((uint16_t)data[1] << 8); // Little-endian
+    try {
+        uint8_t data[2];
+        readRegister(reg, data, 2);
+        return (uint16_t)data[0] | ((uint16_t)data[1] << 8); // Little-endian
+    } catch (const std::exception& e) {
+        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X: %s", reg, e.what());
+        return 0xFFFF; // Return invalid value to indicate failure
+    }
 }
 
 bool ENS160Sensor::waitForWarmup(uint32_t timeoutMs) {
