@@ -1,33 +1,28 @@
 /*
- * ESP32-C3 Environmental Monitor - Unit Test Main
+ * Native Test Runner for ESP32 Environmental Monitor
  * 
- * This file provides the main entry point for unit tests using Unity and CMock.
- * Tests are organized by module (network, sensors, etc.) for better maintainability.
+ * This file provides a native Windows executable that can run unit tests
+ * without requiring ESP-IDF or ESP32 hardware. It uses Unity framework
+ * and custom mocks to simulate the ESP32 environment.
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "unity.h"
-#include "unity_config.h"
-#include "test_result_tracker.h"
-#include "esp_log.h"
+#include <stdint.h>
+#include <stdbool.h>
 
-static const char* TAG = "UNIT_TESTS";
+// Unity test framework
+#include "unity/src/unity.h"
 
-// Test wrapper function to properly track results
-#define RUN_TEST_WITH_TRACKING(test_func) do { \
-    testResultStartTest(#test_func); \
-    test_func(); \
-    if (testResultGetCurrentTestResult()) { \
-        testResultRecordSuccess(#test_func); \
-    } else { \
-        testResultRecordFailure(#test_func, "Test assertion failed", __LINE__, __FILE__); \
-    } \
-} while(0)
+// Test result tracking
+#include "unit/test_result_tracker.h"
 
-// Test function declarations - add new test functions here
+// Mock implementations
+#include "unit/mocks/mockI2cFunctions.h"
+#include "unit/mocks/mockWifiFunctions.h"
+
+// Test function declarations
 extern void testWifiManagerInit(void);
 extern void testWifiManagerConnect(void);
 extern void testHttpClientPost(void);
@@ -59,22 +54,33 @@ extern void testHealthMonitorSensorStatus(void);
 extern void testHealthMonitorStatistics(void);
 extern void testHealthMonitorDataSerialisation(void);
 
+// Test wrapper function to properly track results
+#define RUN_TEST_WITH_TRACKING(test_func) do { \
+    testResultStartTest(#test_func); \
+    test_func(); \
+    if (testResultGetCurrentTestResult()) { \
+        testResultRecordSuccess(#test_func); \
+    } else { \
+        testResultRecordFailure(#test_func, "Test assertion failed", __LINE__, __FILE__); \
+    } \
+} while(0)
+
 void setUp(void) {
     // Set up function called before each test
-    ESP_LOGI(TAG, "Setting up test environment");
+    printf("Setting up test environment\n");
 }
 
 void tearDown(void) {
     // Tear down function called after each test
-    ESP_LOGI(TAG, "Cleaning up test environment");
+    printf("Cleaning up test environment\n");
 }
 
 /**
  * @brief Main test runner function
  */
 void run_all_tests(void) {
-    ESP_LOGI(TAG, "Starting unit tests for ESP32-C3 Environmental Monitor");
-    ESP_LOGI(TAG, "========================================================");
+    printf("Starting native unit tests for ESP32 Environmental Monitor\n");
+    printf("========================================================\n");
     
     // Initialize test result tracking
     testResultInit();
@@ -82,13 +88,13 @@ void run_all_tests(void) {
     UNITY_BEGIN();
     
     // Network module tests
-    ESP_LOGI(TAG, "Running network module tests...");
+    printf("Running network module tests...\n");
     RUN_TEST_WITH_TRACKING(testWifiManagerInit);
     RUN_TEST_WITH_TRACKING(testWifiManagerConnect);
     RUN_TEST_WITH_TRACKING(testHttpClientPost);
     
     // Sensor module tests
-    ESP_LOGI(TAG, "Running sensor module tests...");
+    printf("Running sensor module tests...\n");
     RUN_TEST_WITH_TRACKING(testSensorHealthTracking);
     RUN_TEST_WITH_TRACKING(testAht21InitSuccess);
     RUN_TEST_WITH_TRACKING(testAht21InitNoDevice);
@@ -101,7 +107,7 @@ void run_all_tests(void) {
     RUN_TEST_WITH_TRACKING(testDemonstrateFailure);
     
     // Configuration module tests
-    ESP_LOGI(TAG, " Running configuration module tests...");
+    printf("Running configuration module tests...\n");
     RUN_TEST_WITH_TRACKING(testConfigManagerValidConfig);
     RUN_TEST_WITH_TRACKING(testConfigManagerInvalidConfig);
     RUN_TEST_WITH_TRACKING(testConfigManagerMissingConfig);
@@ -111,7 +117,7 @@ void run_all_tests(void) {
     RUN_TEST_WITH_TRACKING(testConfigManagerErrorHandling);
     
     // Health monitor module tests
-    ESP_LOGI(TAG, " Running health monitor module tests...");
+    printf("Running health monitor module tests...\n");
     RUN_TEST_WITH_TRACKING(testHealthMonitorInit);
     RUN_TEST_WITH_TRACKING(testHealthMonitorSensorStatus);
     RUN_TEST_WITH_TRACKING(testHealthMonitorStatistics);
@@ -120,27 +126,26 @@ void run_all_tests(void) {
     UNITY_END();
     
     // Print test summary
-    ESP_LOGI(TAG, "========================================================");
+    printf("========================================================\n");
     testResultPrintSummary();
-    ESP_LOGI(TAG, "✅ All unit tests completed!");
+    printf("✅ All native unit tests completed!\n");
 }
 
 /**
- * @brief Test application main function
+ * @brief Main function for native test executable
  */
-void app_main(void) {
-    ESP_LOGI(TAG, "ESP32-C3 Environmental Monitor - Unit Test Suite");
-    ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
+int main(void) {
+    printf("ESP32 Environmental Monitor - Native Unit Tests\n");
+    printf("==============================================\n");
+    printf("Running tests on Windows host (no ESP32 required)\n\n");
     
-    // Give the system a moment to stabilise
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Initialize mock functions
+    mockI2cFunctionsInit();
+    mockWifiFunctionsInit();
     
     // Run all tests
     run_all_tests();
     
-    // Keep the test application running
-    while (1) {
-        ESP_LOGI(TAG, "Tests complete. System idle.");
-        vTaskDelay(pdMS_TO_TICKS(60000)); // Wait 1 minute
-    }
-}
+    printf("\nNative testing complete!\n");
+    return 0;
+} 
