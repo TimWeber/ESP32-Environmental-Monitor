@@ -148,12 +148,17 @@ SensorReading AHT21Sensor::readData() {
         float humidity = (float)humidityRaw * 100.0f / 1048576.0f + humidityOffset_;
         float temperature = (float)temperatureRaw * 200.0f / 1048576.0f - 50.0f + temperatureOffset_;
         
+        ESP_LOGI(TAG, "AHT21 raw data: humidityRaw=0x%06lX(%lu), temperatureRaw=0x%06lX(%lu)", 
+                 humidityRaw, humidityRaw, temperatureRaw, temperatureRaw);
+        ESP_LOGI(TAG, "AHT21 calculated: humidity=%.2f%%, temperature=%.2f°C (offsets: H=%.2f, T=%.2f)", 
+                 humidity, temperature, humidityOffset_, temperatureOffset_);
+        
         reading.timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
         reading.valid = true;
         reading.setValue("temperature", temperature);
         reading.setValue("humidity", humidity);
         
-        ESP_LOGD(TAG, "AHT21 reading: T=%.2f°C, H=%.2f%% (with offsets)", 
+        ESP_LOGI(TAG, "AHT21 reading: T=%.2f°C, H=%.2f%% (with offsets)", 
                  temperature, humidity);
         
     } catch (const std::exception& e) {

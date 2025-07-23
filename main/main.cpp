@@ -278,7 +278,7 @@ extern "C" void app_main() {
             auto ens160Ptr = static_cast<ENS160Sensor*>(ens160Sensor.get());
             if (ens160Ptr) {
 
-                ens160Ptr->setValidationThresholds(1, 5, 1, 10000, 200, 10000);
+                ens160Ptr->setValidationThresholds(1, 5, 1, 10000, 1, 10000);
                 ESP_LOGI(TAG, "ENS160 validation thresholds set");
             }
         }

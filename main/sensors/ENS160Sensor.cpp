@@ -310,6 +310,11 @@ SensorReading ENS160Sensor::readData() {
             reading.setValue("tvoc", (float)tvoc);
             reading.setValue("eco2", (float)eco2);
             reading.setValue("status", (float)deviceStatus);
+            
+            ESP_LOGI(TAG, "ENS160 final values: AQI=%d, TVOC=%d, eCO2=%d, status=0x%02X", 
+                     aqi, tvoc, eco2, deviceStatus);
+        } else {
+            ESP_LOGW(TAG, "ENS160 reading marked as invalid");
         }
         
     } catch (const std::exception& e) {

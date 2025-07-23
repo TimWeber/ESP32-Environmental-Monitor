@@ -485,11 +485,13 @@ void RTOSManager::sensorTask(void* parameter) {
                         
                         // Log sensor data
                         ESP_LOGI(TAG, "Sensor data: %zu fields, %zu valid sensors", 
-                                  sensor_data.values.size(), sensor_data.getValidSensors().size());
+                                  sensor_data.getFieldCount(), sensor_data.getValidSensorCount());
                         
                         // Log individual sensor values
-                        for (const auto& [field, value] : sensor_data.values) {
-                            ESP_LOGI(TAG, "  %s: %.2f", field.c_str(), value);
+                        for (size_t i = 0; i < UnifiedSensorData::MAX_FIELDS; i++) {
+                            if (sensor_data.values[i].used) {
+                                ESP_LOGI(TAG, "  %s: %.2f", sensor_data.values[i].name, sensor_data.values[i].value);
+                            }
                         }
                         
                         // Set environmental compensation for ENS160 if we have temperature/humidity

@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <cstring>
 
 /**
  * @brief Sensor health status for monitoring
@@ -40,23 +41,63 @@ struct SensorConfig {
 
 /**
  * @brief Unified sensor data structure
+ * 
+ * Uses fixed-size arrays instead of std::string to avoid memory corruption
+ * when passed through FreeRTOS queues
  */
 struct UnifiedSensorData {
-    std::map<std::string, float> values;  // Field name -> value mapping
-    std::map<std::string, bool> valid;    // Sensor name -> validity mapping
+    static constexpr size_t MAX_FIELDS = 10;
+    static constexpr size_t MAX_SENSORS = 5;
+    static constexpr size_t MAX_FIELD_NAME_LEN = 16;
+    static constexpr size_t MAX_SENSOR_NAME_LEN = 16;
+    
+    struct FieldValue {
+        char name[MAX_FIELD_NAME_LEN];
+        float value;
+        bool used;
+        
+        FieldValue() : value(0.0f), used(false) {
+            name[0] = '\0';
+        }
+    };
+    
+    struct SensorValidity {
+        char name[MAX_SENSOR_NAME_LEN];
+        bool valid;
+        bool used;
+        
+        SensorValidity() : valid(false), used(false) {
+            name[0] = '\0';
+        }
+    };
+    
+    FieldValue values[MAX_FIELDS];
+    SensorValidity sensors[MAX_SENSORS];
     uint32_t timestamp;
     bool isNewData;
     
-    UnifiedSensorData() : timestamp(0), isNewData(false) {}
+    UnifiedSensorData() : timestamp(0), isNewData(false) {
+        // Initialize arrays
+        for (auto& field : values) {
+            field = FieldValue();
+        }
+        for (auto& sensor : sensors) {
+            sensor = SensorValidity();
+        }
+    }
     
     /**
      * @brief Get a specific value from the data
      * @param field Field name (e.g., "temperature", "humidity", "pressure")
      * @return Value if found, 0.0f otherwise
      */
-    float getValue(const std::string& field) const {
-        auto it = values.find(field);
-        return (it != values.end()) ? it->second : 0.0f;
+    float getValue(const char* field) const {
+        for (const auto& fv : values) {
+            if (fv.used && strcmp(fv.name, field) == 0) {
+                return fv.value;
+            }
+        }
+        return 0.0f;
     }
     
     /**
@@ -64,8 +105,13 @@ struct UnifiedSensorData {
      * @param field Field name
      * @return true if field exists, false otherwise
      */
-    bool hasValue(const std::string& field) const {
-        return values.find(field) != values.end();
+    bool hasValue(const char* field) const {
+        for (const auto& fv : values) {
+            if (fv.used && strcmp(fv.name, field) == 0) {
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
@@ -73,23 +119,93 @@ struct UnifiedSensorData {
      * @param sensorName Sensor name
      * @return true if sensor is valid, false otherwise
      */
-    bool isSensorValid(const std::string& sensorName) const {
-        auto it = valid.find(sensorName);
-        return (it != valid.end()) ? it->second : false;
+    bool isSensorValid(const char* sensorName) const {
+        for (const auto& sv : sensors) {
+            if (sv.used && strcmp(sv.name, sensorName) == 0) {
+                return sv.valid;
+            }
+        }
+        return false;
     }
     
     /**
-     * @brief Get all valid sensors
-     * @return Vector of valid sensor names
+     * @brief Add a field value
+     * @param field Field name
+     * @param value Field value
+     * @return true if added successfully, false if no space
      */
-    std::vector<std::string> getValidSensors() const {
-        std::vector<std::string> validSensors;
-        for (const auto& [name, isValid] : valid) {
-            if (isValid) {
-                validSensors.push_back(name);
+    bool addValue(const char* field, float value) {
+        for (auto& fv : values) {
+            if (!fv.used) {
+                strncpy(fv.name, field, MAX_FIELD_NAME_LEN - 1);
+                fv.name[MAX_FIELD_NAME_LEN - 1] = '\0';
+                fv.value = value;
+                fv.used = true;
+                return true;
             }
         }
-        return validSensors;
+        return false; // No space available
+    }
+    
+    /**
+     * @brief Add a sensor validity
+     * @param sensorName Sensor name
+     * @param valid Whether sensor is valid
+     * @return true if added successfully, false if no space
+     */
+    bool addSensor(const char* sensorName, bool valid) {
+        for (auto& sv : sensors) {
+            if (!sv.used) {
+                strncpy(sv.name, sensorName, MAX_SENSOR_NAME_LEN - 1);
+                sv.name[MAX_SENSOR_NAME_LEN - 1] = '\0';
+                sv.valid = valid;
+                sv.used = true;
+                return true;
+            }
+        }
+        return false; // No space available
+    }
+    
+    /**
+     * @brief Clear all data
+     */
+    void clear() {
+        for (auto& field : values) {
+            field = FieldValue();
+        }
+        for (auto& sensor : sensors) {
+            sensor = SensorValidity();
+        }
+        timestamp = 0;
+        isNewData = false;
+    }
+    
+    /**
+     * @brief Get count of valid sensors
+     * @return Number of valid sensors
+     */
+    size_t getValidSensorCount() const {
+        size_t count = 0;
+        for (const auto& sv : sensors) {
+            if (sv.used && sv.valid) {
+                count++;
+            }
+        }
+        return count;
+    }
+    
+    /**
+     * @brief Get count of fields
+     * @return Number of fields
+     */
+    size_t getFieldCount() const {
+        size_t count = 0;
+        for (const auto& fv : values) {
+            if (fv.used) {
+                count++;
+            }
+        }
+        return count;
     }
 };
 
