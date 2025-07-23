@@ -1,6 +1,7 @@
 #pragma once
 
-#include "core/I2CManager.hpp"
+#include "managers/I2CManager.hpp"
+#include "sensors/ISensor.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,7 +24,7 @@ struct AHT21Data {
  * Uses new ESP-IDF i2c_master API with RAII for proper resource management.
  * Provides exception-safe interface with automatic device cleanup.
  */
-class AHT21Sensor {
+class AHT21Sensor : public ISensor {
 private:
     static constexpr const char* TAG = "AHT21";
     static constexpr uint8_t AHT21_ADDRESS = 0x38;
@@ -54,43 +55,7 @@ public:
      */
     ~AHT21Sensor();
     
-    /**
-     * @brief Initialise the AHT21 sensor
-     * @throws std::runtime_error if initialisation fails
-     */
-    void initialise();
-    
-    /**
-     * @brief Initialise the AHT21 sensor with config loading
-     * @param configPath Path to the configuration file
-     * @throws std::runtime_error if initialisation fails
-     */
-    void initialiseFromConfig(const char* configPath);
-    
-    /**
-     * @brief Read temperature and humidity from sensor
-     * @return AHT21Data structure with temperature, humidity, and validity flag
-     * @throws std::runtime_error if reading fails
-     */
-    AHT21Data readData();
-    
-    /**
-     * @brief Reset the sensor
-     * @throws std::runtime_error if reset fails
-     */
-    void reset();
-    
-    /**
-     * @brief Check if sensor is initialised and calibrated
-     * @return true if ready, false otherwise
-     */
-    bool isReady();
-    
-    /**
-     * @brief Check if sensor is initialised
-     * @return true if initialised, false otherwise
-     */
-    bool isInitialised() const { return initialised_; }
+
     
     /**
      * @brief Get sensor status byte
@@ -98,6 +63,19 @@ public:
      * @throws std::runtime_error if communication fails
      */
     uint8_t getStatus();
+
+
+
+    // ISensor interface implementations
+    bool initialise() override;
+    bool initialiseFromConfig(const char* configPath) override;
+    SensorReading readData() override;
+    bool isInitialised() const override { return initialised_; }
+    bool isReady() override;
+    std::string getSensorType() const override { return "AHT21"; }
+    uint8_t getAddress() const override { return AHT21_ADDRESS; }
+    bool reset() override;
+    std::string getStatus() const override;
 
     // Disable copy constructor and assignment operator
     AHT21Sensor(const AHT21Sensor&) = delete;

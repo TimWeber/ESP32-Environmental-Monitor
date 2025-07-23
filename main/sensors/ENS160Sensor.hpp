@@ -1,6 +1,7 @@
 #pragma once
 
-#include "core/I2CManager.hpp"
+#include "managers/I2CManager.hpp"
+#include "sensors/ISensor.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,7 +28,7 @@ struct ENS160Data {
  * Uses ESP-IDF i2c_master API with RAII for proper resource management.
  * Provides exception-safe interface with automatic device cleanup.
  */
-class ENS160Sensor {
+class ENS160Sensor : public ISensor {
 private:
     static constexpr const char* TAG = "ENS160";
     static constexpr uint8_t ENS160_ADDRESS = 0x53;
@@ -103,20 +104,35 @@ public:
     ~ENS160Sensor();
     
     /**
-     * @brief Initialise the ENS160 sensor
-     * @throws std::runtime_error if initialisation fails
+     * @brief Read air quality data from sensor (internal method)
+     * @return ENS160Data structure with AQI, TVOC, eCO2, and validity flag
+     * @throws std::runtime_error if reading fails
      */
-    void initialise();
+    ENS160Data readDataInternal();
     
     /**
-     * @brief Initialise the ENS160 sensor with config loading
-     * @param config_path Path to the configuration file
-     * @throws std::runtime_error if initialisation fails
+     * @brief Set operating mode (internal method)
+     * @param mode Operating mode (SLEEP, IDLE, STANDARD, LP)
+     * @throws std::runtime_error if setting mode fails
      */
-    void initialiseFromConfig(const char* config_path);
+    void setOperatingMode(uint8_t mode);
     
     /**
-     * @brief Set validation thresholds for air quality data
+     * @brief Set environmental compensation data (internal method)
+     * @param temperature Temperature in °C
+     * @param humidity Relative humidity in %RH
+     * @throws std::runtime_error if setting compensation fails
+     */
+    void setEnvironmentalCompensation(float temperature, float humidity);
+    
+    /**
+     * @brief Check if sensor is ready for measurement (internal method)
+     * @return true if ready, false otherwise
+     */
+    bool isReadyInternal();
+    
+    /**
+     * @brief Set validation thresholds for air quality data (internal method)
      * @param aqiMin Minimum AQI value (default: 1)
      * @param aqiMax Maximum AQI value (default: 5)
      * @param tvocMin Minimum TVOC value in ppb (default: 1)
@@ -129,38 +145,17 @@ public:
                                 uint16_t eco2Min, uint16_t eco2Max);
     
     /**
-     * @brief Read air quality data from sensor
-     * @return ENS160Data structure with AQI, TVOC, eCO2, and validity flag
-     * @throws std::runtime_error if reading fails
+     * @brief Initialise the ENS160 sensor (internal method)
+     * @throws std::runtime_error if initialisation fails
      */
-    ENS160Data readData();
+    void initialiseInternal();
     
     /**
-     * @brief Set operating mode
-     * @param mode Operating mode (SLEEP, IDLE, STANDARD, LP)
-     * @throws std::runtime_error if setting mode fails
+     * @brief Initialise the ENS160 sensor with config loading (internal method)
+     * @param config_path Path to the configuration file
+     * @throws std::runtime_error if initialisation fails
      */
-    void setOperatingMode(uint8_t mode);
-    
-    /**
-     * @brief Set environmental compensation data
-     * @param temperature Temperature in °C
-     * @param humidity Relative humidity in %RH
-     * @throws std::runtime_error if setting compensation fails
-     */
-    void setEnvironmentalCompensation(float temperature, float humidity);
-    
-    /**
-     * @brief Check if sensor is ready for measurement
-     * @return true if ready, false otherwise
-     */
-    bool isReady();
-    
-    /**
-     * @brief Check if sensor is initialised
-     * @return true if initialised, false otherwise
-     */
-    bool isInitialised() const { return initialised_; }
+    void initialiseFromConfigInternal(const char* config_path);
     
     /**
      * @brief Get sensor device status
@@ -188,6 +183,17 @@ public:
      * @throws std::runtime_error if communication fails
      */
     uint16_t getPartId();
+
+    // ISensor interface implementations
+    bool initialise() override;
+    bool initialiseFromConfig(const char* configPath) override;
+    SensorReading readData() override;
+    bool isInitialised() const override { return initialised_; }
+    bool isReady() override;
+    std::string getSensorType() const override { return "ENS160"; }
+    uint8_t getAddress() const override { return ENS160_ADDRESS; }
+    bool reset() override;
+    std::string getStatus() const override;
 
     // Disable copy constructor and assignment operator
     ENS160Sensor(const ENS160Sensor&) = delete;

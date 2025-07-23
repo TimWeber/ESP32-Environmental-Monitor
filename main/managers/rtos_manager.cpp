@@ -385,15 +385,10 @@ bool RTOSManager::loadConfiguration(const char* configPath) {
         serverUrl_ = configManager_->getServerUrl();
         
         // Set validation thresholds on ENS160 sensor if available
-        if (ens160Sensor_) {
-            ens160Sensor_->setValidationThresholds(
-                configManager_->getAqiMin(),
-                configManager_->getAqiMax(),
-                configManager_->getTvocMin(),
-                configManager_->getTvocMax(),
-                configManager_->getEco2Min(),
-                configManager_->getEco2Max()
-            );
+        // Note: RTTI is disabled, so we can't use dynamic_cast
+        // The validation thresholds will be set when the sensor is added to the manager
+        if (sensorManager_ && sensorManager_->hasSensor("ENS160")) {
+            ESP_LOGI(TAG, "ENS160 sensor found in sensor manager");
         }
         
         ESP_LOGI(TAG, "Configuration loaded successfully using protocol-agnostic manager");
@@ -842,8 +837,7 @@ RTOSManager::RTOSManager(RTOSManager&& other) noexcept
       networkTransmissionsCount_(other.networkTransmissionsCount_.load()),
       networkErrorsCount_(other.networkErrorsCount_.load()),
       i2cManager_(std::move(other.i2cManager_)),
-      aht21Sensor_(std::move(other.aht21Sensor_)),
-      ens160Sensor_(std::move(other.ens160Sensor_)),
+      sensorManager_(std::move(other.sensorManager_)),
       configManager_(std::move(other.configManager_)),
       sensorReadingIntervalMs_(other.sensorReadingIntervalMs_),
       networkTransmissionIntervalMs_(other.networkTransmissionIntervalMs_),
@@ -905,8 +899,7 @@ RTOSManager& RTOSManager::operator=(RTOSManager&& other) noexcept {
         networkTransmissionsCount_.store(other.networkTransmissionsCount_.load());
         networkErrorsCount_.store(other.networkErrorsCount_.load());
         i2cManager_ = std::move(other.i2cManager_);
-        aht21Sensor_ = std::move(other.aht21Sensor_);
-        ens160Sensor_ = std::move(other.ens160Sensor_);
+        sensorManager_ = std::move(other.sensorManager_);
         configManager_ = std::move(other.configManager_);
         sensorReadingIntervalMs_ = other.sensorReadingIntervalMs_;
         networkTransmissionIntervalMs_ = other.networkTransmissionIntervalMs_;

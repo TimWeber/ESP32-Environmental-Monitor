@@ -3,11 +3,12 @@
 idf_component_register(
     SRCS
         "main.cpp"
-        "core/rtos_manager.cpp"
-        "core/I2CManager.cpp"
-        "core/config_manager.cpp"
+        "managers/rtos_manager.cpp"
+        "managers/I2CManager.cpp"
+        "managers/config_manager.cpp"
+        "managers/SensorManager.cpp"
         "core/json_config_provider.cpp"
-        "core/sensor_registry.cpp"
+        "managers/sensor_registry.cpp"
         "sensors/AHT21Sensor.cpp"
         "sensors/ENS160Sensor.cpp"
         "network/wifi_manager.c"
@@ -15,7 +16,7 @@ idf_component_register(
         "network/http_client.c"
         "network/http_server.c"
         "network/secure_credentials.c"
-        "core/health_monitor.cpp"
+        "managers/health_monitor.cpp"
         "network/health_server.cpp"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi

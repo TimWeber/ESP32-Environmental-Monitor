@@ -14,7 +14,7 @@
 #include "freertos/task.h"
 
 // Include the modules under test
-#include "core/config_manager.hpp"
+#include "managers/config_manager.hpp"
 #include "core/json_config_provider.hpp"
 
 static const char* TAG = "TEST_CONFIG";

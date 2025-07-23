@@ -10,8 +10,8 @@
  * These components provide the core infrastructure that other modules depend on.
  */
 
-#include "I2CManager.hpp"
-#include "rtos_manager.hpp"
+#include "managers/I2CManager.hpp"
+#include "managers/rtos_manager.hpp"
 
 // Core system configuration
 namespace Core {

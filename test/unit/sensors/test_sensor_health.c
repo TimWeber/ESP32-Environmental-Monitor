@@ -16,7 +16,7 @@
 // Include the modules under test
 #include "sensors/AHT21Sensor.hpp"
 #include "sensors/ENS160Sensor.hpp"
-#include "core/I2CManager.hpp"
+#include "managers/I2CManager.hpp"
 
 // Include mock functions
 #include "mocks/mockI2cFunctions.h"

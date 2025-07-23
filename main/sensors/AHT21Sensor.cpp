@@ -19,37 +19,37 @@ AHT21Sensor::~AHT21Sensor() {
     initialised_ = false;
 }
 
-void AHT21Sensor::initialise() {
+bool AHT21Sensor::initialise() {
     ESP_LOGI(TAG, "Initialising AHT21 sensor...");
     
-    // Create I2C device handle
-    i2cManager_.createDevice(AHT21_ADDRESS, &deviceHandle_);
-    
-    // Initial delay
-    vTaskDelay(pdMS_TO_TICKS(AHT21_INIT_DELAY_MS));
-    
-    // First, check if device is present by trying to read status
-    uint8_t status;
-    esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "AHT21 device not responding at address 0x%02X: %s", 
-                 AHT21_ADDRESS, esp_err_to_name(err));
-        ESP_LOGW(TAG, "AHT21 sensor not found - continuing without sensor");
+    try {
+        // Create I2C device handle
+        i2cManager_.createDevice(AHT21_ADDRESS, &deviceHandle_);
         
-        // Clean up device handle
-        if (deviceHandle_) {
-            esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
-            if (rm_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+        // Initial delay
+        vTaskDelay(pdMS_TO_TICKS(AHT21_INIT_DELAY_MS));
+        
+        // First, check if device is present by trying to read status
+        uint8_t status;
+        esp_err_t err = i2c_master_receive(deviceHandle_, &status, 1, 1000);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "AHT21 device not responding at address 0x%02X: %s", 
+                     AHT21_ADDRESS, esp_err_to_name(err));
+            ESP_LOGW(TAG, "AHT21 sensor not found - continuing without sensor");
+            
+            // Clean up device handle
+            if (deviceHandle_) {
+                esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+                if (rm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+                }
+                deviceHandle_ = nullptr;
             }
-            deviceHandle_ = nullptr;
+            
+            initialised_ = false;
+            return false;
         }
-        
-        // Don't throw exception - just mark as not initialised
-        initialised_ = false;
-        return;
-    }
-        
+            
         ESP_LOGI(TAG, "AHT21 device found at address 0x%02X", AHT21_ADDRESS);
         
         // Reset sensor first
@@ -72,43 +72,45 @@ void AHT21Sensor::initialise() {
             status = getStatus();
             ESP_LOGI(TAG, "AHT21 status after initialisation: 0x%02X", status);
             
-                    if (!(status & AHT21_STATUS_CALIBRATED)) {
-            ESP_LOGW(TAG, "AHT21 failed to calibrate - continuing without sensor");
-            
-            // Clean up device handle
-            if (deviceHandle_) {
-                esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
-                if (rm_err != ESP_OK) {
-                    ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+            if (!(status & AHT21_STATUS_CALIBRATED)) {
+                ESP_LOGW(TAG, "AHT21 failed to calibrate - continuing without sensor");
+                
+                // Clean up device handle
+                if (deviceHandle_) {
+                    esp_err_t rm_err = i2c_master_bus_rm_device(deviceHandle_);
+                    if (rm_err != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to remove AHT21 device: %s", esp_err_to_name(rm_err));
+                    }
+                    deviceHandle_ = nullptr;
                 }
-                deviceHandle_ = nullptr;
+                
+                initialised_ = false;
+                return false;
             }
-            
-            // Don't throw exception - just mark as not initialised
-            initialised_ = false;
-            return;
         }
+        
+        initialised_ = true;
+        ESP_LOGI(TAG, "AHT21 initialised successfully");
+        return true;
+    } catch (const std::exception& e) {
+        ESP_LOGE(TAG, "AHT21 initialise failed: %s", e.what());
+        initialised_ = false;
+        return false;
     }
-    
-    initialised_ = true;
-    ESP_LOGI(TAG, "AHT21 initialised successfully");
 }
 
-void AHT21Sensor::initialiseFromConfig(const char* configPath) {
+bool AHT21Sensor::initialiseFromConfig(const char* configPath) {
     ESP_LOGI(TAG, "Initialising AHT21 sensor from config: %s", configPath);
     
-    initialise();
-    
-    if (!initialised_) {
-        ESP_LOGW(TAG, "AHT21 sensor initialisation failed - system will continue without this sensor");
-    }
+    return initialise();
 }
 
-AHT21Data AHT21Sensor::readData() {
-    AHT21Data data;
+SensorReading AHT21Sensor::readData() {
+    SensorReading reading;
     
     if (!initialised_) {
-        throw std::runtime_error("AHT21 sensor not initialised");
+        reading.valid = false;
+        return reading;
     }
     
     try {
@@ -119,7 +121,8 @@ AHT21Data AHT21Sensor::readData() {
         // Wait for measurement to complete
         if (!waitForReady(1000)) {
             ESP_LOGW(TAG, "AHT21 measurement timeout");
-            return data; // returns invalid data
+            reading.valid = false;
+            return reading;
         }
         
         uint8_t rawData[6];
@@ -128,7 +131,8 @@ AHT21Data AHT21Sensor::readData() {
         // Check if measurement is valid
         if (rawData[0] & AHT21_STATUS_BUSY) {
             ESP_LOGW(TAG, "AHT21 still busy after measurement");
-            return data; // returns invalid data
+            reading.valid = false;
+            return reading;
         }
         
         // Convert raw data to temperature and humidity
@@ -141,24 +145,29 @@ AHT21Data AHT21Sensor::readData() {
                                   rawData[5];
         
         // Convert to actual values and apply offsets
-        data.humidity = (float)humidityRaw * 100.0f / 1048576.0f + humidityOffset_;
-        data.temperature = (float)temperatureRaw * 200.0f / 1048576.0f - 50.0f + temperatureOffset_;
-        data.valid = true;
+        float humidity = (float)humidityRaw * 100.0f / 1048576.0f + humidityOffset_;
+        float temperature = (float)temperatureRaw * 200.0f / 1048576.0f - 50.0f + temperatureOffset_;
+        
+        reading.timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        reading.valid = true;
+        reading.setValue("temperature", temperature);
+        reading.setValue("humidity", humidity);
         
         ESP_LOGD(TAG, "AHT21 reading: T=%.2f°C, H=%.2f%% (with offsets)", 
-                 data.temperature, data.humidity);
+                 temperature, humidity);
         
     } catch (const std::exception& e) {
         ESP_LOGE(TAG, "Failed to read AHT21 data: %s", e.what());
-        data.valid = false;
+        reading.valid = false;
     }
     
-    return data;
+    return reading;
 }
 
-void AHT21Sensor::reset() {
+bool AHT21Sensor::reset() {
     if (!deviceHandle_) {
-        throw std::runtime_error("AHT21 device not initialized");
+        ESP_LOGE(TAG, "AHT21 device not initialized");
+        return false;
     }
     
     ESP_LOGI(TAG, "Resetting AHT21 sensor");
@@ -167,11 +176,12 @@ void AHT21Sensor::reset() {
         // AHT21 soft reset - send reset command without data
         writeCommand(AHT21_CMD_RESET);
         vTaskDelay(pdMS_TO_TICKS(AHT21_RESET_DELAY_MS));
+        initialised_ = false;
+        return true;
     } catch (const std::exception& e) {
         ESP_LOGW(TAG, "AHT21 reset failed: %s", e.what());
+        return false;
     }
-    
-    initialised_ = false;
 }
 
 bool AHT21Sensor::isReady() {
@@ -300,4 +310,16 @@ AHT21Sensor& AHT21Sensor::operator=(AHT21Sensor&& other) noexcept {
         other.initialised_ = false;
     }
     return *this;
+}
+
+
+
+std::string AHT21Sensor::getStatus() const {
+    try {
+        uint8_t status = const_cast<AHT21Sensor*>(this)->getStatus();
+        return "Status: 0x" + std::to_string(status) + 
+               (initialised_ ? " (initialised)" : " (not initialised)");
+    } catch (const std::exception& e) {
+        return "Status: Error - " + std::string(e.what());
+    }
 }

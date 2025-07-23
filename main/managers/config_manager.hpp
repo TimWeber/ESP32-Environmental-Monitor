@@ -3,7 +3,7 @@
 #include <string>
 #include <memory>
 #include <cstdint>
-#include "calibration.hpp"
+#include "core/calibration.hpp"
 
 /**
  * @brief Abstract configuration interface

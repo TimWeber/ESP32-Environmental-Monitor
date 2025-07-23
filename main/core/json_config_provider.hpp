@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config_manager.hpp"
+#include "managers/config_manager.hpp"
 #include "cJSON.h"
 #include <string>
 #include <memory>

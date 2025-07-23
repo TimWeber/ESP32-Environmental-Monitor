@@ -1,6 +1,6 @@
 #include "config_manager.hpp"
-#include "calibration.hpp"
-#include "json_config_provider.hpp"
+#include "core/calibration.hpp"
+#include "core/json_config_provider.hpp"
 #include "esp_log.h"
 #include <cstring>
 

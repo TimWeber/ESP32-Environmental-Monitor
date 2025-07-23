@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ISensor.hpp"
+#include "sensors/ISensor.hpp"
 #include "I2CManager.hpp"
 #include "esp_log.h"
 #include <memory>
@@ -60,6 +60,15 @@ struct UnifiedSensorData {
     }
     
     /**
+     * @brief Check if a field exists in the data
+     * @param field Field name
+     * @return true if field exists, false otherwise
+     */
+    bool hasValue(const std::string& field) const {
+        return values.find(field) != values.end();
+    }
+    
+    /**
      * @brief Check if a sensor is valid
      * @param sensorName Sensor name
      * @return true if sensor is valid, false otherwise
@@ -107,6 +116,7 @@ private:
     
     // Configuration
     const char* configPath_;
+    bool initialised_;
     
     // Statistics
     uint32_t totalReadings_;
@@ -130,6 +140,12 @@ public:
      * @brief Destructor
      */
     ~SensorManager() = default;
+    
+    /**
+     * @brief Initialize the sensor manager
+     * @return true if initialization successful, false otherwise
+     */
+    bool initialise();
     
     /**
      * @brief Initialize all sensors from configuration
@@ -236,6 +252,16 @@ public:
      * @return Sensor configuration
      */
     SensorConfig getSensorConfig(const std::string& name) const;
+    
+    /**
+     * @brief Get a specific sensor by name
+     * @param name Sensor name
+     * @return Shared pointer to sensor, or nullptr if not found
+     */
+    std::shared_ptr<ISensor> getSensor(const std::string& name) const {
+        auto it = sensors_.find(name);
+        return (it != sensors_.end()) ? it->second : nullptr;
+    }
     
     /**
      * @brief Update sensor configuration

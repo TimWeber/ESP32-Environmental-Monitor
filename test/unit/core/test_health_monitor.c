@@ -14,7 +14,7 @@
 #include "freertos/task.h"
 
 // Include the modules under test
-#include "core/health_monitor.hpp"
+#include "managers/health_monitor.hpp"
 #include "network/health_server.hpp"
 
 static const char* TAG = "TEST_HEALTH";

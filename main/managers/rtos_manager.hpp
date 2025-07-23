@@ -29,18 +29,9 @@ using SensorData = UnifiedSensorData;
 
 /**
  * @brief Sensor health status for heartbeat monitoring
+ * 
+ * Note: This struct is now defined in SensorManager.hpp and included here
  */
-struct SensorHealthStatus {
-    bool isHealthy;
-    uint8_t consecutiveFailures;
-    uint32_t lastCheckTime;
-    uint32_t expectedId;
-    uint32_t actualId;
-    std::string sensorName;
-    
-    SensorHealthStatus() : isHealthy(true), consecutiveFailures(0), lastCheckTime(0), 
-                          expectedId(0), actualId(0), sensorName("") {}
-};
 
 /**
  * @brief RTOS Manager for multi-task environmental monitoring system
@@ -60,7 +51,7 @@ private:
     static constexpr UBaseType_t HEARTBEAT_TASK_PRIORITY = 7;  // High priority for health monitoring
     
     // Task stack sizes
-    static constexpr uint32_t SENSOR_TASK_STACK_SIZE = 4096;
+    static constexpr uint32_t SENSOR_TASK_STACK_SIZE = 8192;
     static constexpr uint32_t NETWORK_TASK_STACK_SIZE = 8192;
     static constexpr uint32_t MONITOR_TASK_STACK_SIZE = 8192;
     static constexpr uint32_t WATCHDOG_TASK_STACK_SIZE = 2048;

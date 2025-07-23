@@ -1,7 +1,8 @@
 #include "main.hpp"
-#include "core/rtos_manager.hpp"
-#include "core/I2CManager.hpp"
-#include "core/config_manager.hpp"
+#include "managers/rtos_manager.hpp"
+#include "managers/I2CManager.hpp"
+#include "managers/config_manager.hpp"
+#include "managers/SensorManager.hpp"
 #include "core/json_config_provider.hpp"
 #include "sensors/AHT21Sensor.hpp"
 #include "sensors/ENS160Sensor.hpp"
@@ -10,9 +11,9 @@
 #include "network/http_client.h"
 #include "network/http_server.h"
 #include "network/secure_credentials.h"
-#include "core/health_monitor.hpp"
+#include "managers/health_monitor.hpp"
 #include "network/health_server.hpp"
-#include "core/sensor_registry.hpp"
+#include "managers/sensor_registry.hpp"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_spiffs.h"
@@ -236,8 +237,8 @@ extern "C" void app_main() {
         }
         esp_task_wdt_reset(); // Feed watchdog
 
-        // Create and initialise RTOS manager
-        RTOSManager rtosManager;
+        // Create and initialise RTOS manager on heap to reduce stack usage
+        auto rtosManager = std::make_unique<RTOSManager>();
         ESP_LOGI(TAG, "RTOS manager created");
         
         // Update health monitor with sensor status using existing sensors
@@ -260,14 +261,36 @@ extern "C" void app_main() {
             ESP_LOGI(TAG, "Health monitor updated with sensor states: AHT21=ready, ENS160=warm_up");
         }
         
-        // Initialise RTOS manager with existing sensors
-        ESP_ERROR_CHECK(rtosManager.initialise(i2cManager, aht21Sensor, ens160Sensor, configPath));
+        // Create sensor manager and add sensors
+        auto sensorManager = std::make_shared<SensorManager>(i2cManager);
+        sensorManager->initialiseFromConfig(configPath);
+        
+        // Add sensors to the sensor manager
+        if (aht21Sensor && aht21Sensor->isInitialised()) {
+            sensorManager->addSensor("AHT21", aht21Sensor);
+            ESP_LOGI(TAG, "AHT21 sensor added to sensor manager");
+        }
+        if (ens160Sensor && ens160Sensor->isInitialised()) {
+            sensorManager->addSensor("ENS160", ens160Sensor);
+            ESP_LOGI(TAG, "ENS160 sensor added to sensor manager");
+            
+        
+            auto ens160Ptr = static_cast<ENS160Sensor*>(ens160Sensor.get());
+            if (ens160Ptr) {
+
+                ens160Ptr->setValidationThresholds(1, 5, 1, 10000, 200, 10000);
+                ESP_LOGI(TAG, "ENS160 validation thresholds set");
+            }
+        }
+        
+        // Initialise RTOS manager with sensor manager
+        ESP_ERROR_CHECK(rtosManager->initialise(i2cManager, sensorManager, configPath));
         
         // Set the health monitor to use the main's instance
-        rtosManager.setHealthMonitor(g_healthMonitor);
+        rtosManager->setHealthMonitor(g_healthMonitor);
         
         // Validate configuration before starting
-        if (!rtosManager.validateConfiguration()) {
+        if (!rtosManager->validateConfiguration()) {
             ESP_LOGE(TAG, "Configuration validation failed - system cannot start");
             ESP_LOGE(TAG, "Please ensure data/settings.json exists and contains proper configuration values");
             ESP_LOGE(TAG, "Copy config/settings.template.jsonc to data/settings.json and configure with your actual values");
@@ -276,78 +299,54 @@ extern "C" void app_main() {
         
         // Start the RTOS manager
         ESP_LOGI(TAG, "Starting RTOS manager...");
-        ESP_ERROR_CHECK(rtosManager.start());
+        ESP_ERROR_CHECK(rtosManager->start());
         ESP_LOGI(TAG, "RTOS manager started successfully");
         
         // Send handshake to server to register this sensor
         ESP_LOGI(TAG, "Sending handshake to server...");
         const char* esp32Ip = wifi_manager_get_ip();
-        std::string sensorId = g_sensorRegistry ? g_sensorRegistry->getSensorId() : "sensor_unknown";
+        const char* sensorId = g_sensorRegistry ? g_sensorRegistry->getSensorId().c_str() : "sensor_unknown";
         
         // Get server URL from sensor registry
-        std::string serverUrl = g_sensorRegistry ? g_sensorRegistry->getServerUrl() : "";
-        if (serverUrl.empty()) {
+        const char* serverUrl = g_sensorRegistry ? g_sensorRegistry->getServerUrl().c_str() : "";
+        if (strlen(serverUrl) == 0) {
             ESP_LOGW(TAG, "Server URL not configured - skipping handshake");
-        } else if (sendHandshakeToServer(sensorId.c_str(), esp32Ip, serverUrl.c_str(), 10000)) {
-            ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId.c_str(), esp32Ip);
-            ESP_LOGI(TAG, "Health data available at: http://your-server.local/api/%s", sensorId.c_str());
+        } else if (sendHandshakeToServer(sensorId, esp32Ip, serverUrl, 10000)) {
+            ESP_LOGI(TAG, "Handshake successful - sensor %s registered with IP %s", sensorId, esp32Ip);
+            ESP_LOGI(TAG, "Health data available at: http://your-server.local/api/%s", sensorId);
             
             // Mark as registered in the registry
             if (g_sensorRegistry) {
                 // The registry will remember this sensor ID across reboots
-                ESP_LOGI(TAG, "Sensor ID %s will be remembered across reboots", sensorId.c_str());
+                ESP_LOGI(TAG, "Sensor ID %s will be remembered across reboots", sensorId);
             }
-        } else if (!serverUrl.empty()) {
+        } else {
             ESP_LOGW(TAG, "Handshake failed - sensor may not be registered with server");
         }
         
         // Test health monitoring with some sample data
         if (g_healthMonitor) {
             ESP_LOGI(TAG, "Testing health monitoring system...");
-            
-            // Simulate some sensor readings
             g_healthMonitor->recordSensorReading(true);
-            g_healthMonitor->recordSensorReading(true);
-            g_healthMonitor->recordSensorReading(false);
-            
-            // Simulate some network transmissions
             g_healthMonitor->recordNetworkTransmission(true);
-            g_healthMonitor->recordNetworkTransmission(false);
-            
             ESP_LOGI(TAG, "Health monitoring test completed");
         }
         
         // Main loop
         ESP_LOGI(TAG, "System started successfully");
         
-        TickType_t lastHealthUpdate = 0;
         TickType_t lastStatsTime = 0;
         
-        while (rtosManager.isRunning()) {
+        while (rtosManager->isRunning()) {
             TickType_t currentTime = xTaskGetTickCount();
             
             // Feed watchdog every 5 seconds to prevent timeouts
             esp_task_wdt_reset();
             
-            // Update health metrics every 30 seconds
-            if (g_healthMonitor && (currentTime - lastHealthUpdate) >= pdMS_TO_TICKS(30000)) {
-                // Update sensor success rates (example - replace with actual calculations)
-                g_healthMonitor->updateSensorSuccessRates(99, 98);
-                
-                // Update network metrics (example - replace with actual measurements)
-                g_healthMonitor->updateNetworkMetrics(95, 1200, 5);
-                
-                // Update zero readings count
-                g_healthMonitor->updateZeroReadingsCount(10);
-                
-                ESP_LOGD(TAG, "Health metrics updated");
-                lastHealthUpdate = currentTime;
-            }
-            
             // Print statistics every 5 minutes
             if ((currentTime - lastStatsTime) >= pdMS_TO_TICKS(300000)) { // 5 minutes
                 uint32_t readings, transmissions, errors;
-                rtosManager.getStatistics(readings, transmissions, errors);
+                rtosManager->getStatistics(readings, transmissions, errors);
                 ESP_LOGI(TAG, "System Statistics: readings=%lu, transmissions=%lu, errors=%lu, uptime=%lu ms",
                          readings, transmissions, errors, pdTICKS_TO_MS(currentTime));
                 lastStatsTime = currentTime;
