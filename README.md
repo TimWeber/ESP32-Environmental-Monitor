@@ -7,83 +7,105 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 - **ENS160**: Air quality sensor that measures TVOC, eCO2, and AQI
 - **I2C Manager**: Handles all the I2C communication in one place
 
-### Networking
+### **Networking**
 - **WiFi**: Connects to your network using credentials stored securely in NVS
 - **HTTP Client**: Sends JSON data to your server with retry logic
 - **SNTP**: Syncs time for accurate timestamps
 - **Health Server**: Custom HTTP server providing system health monitoring
 
-### Configuration
+### **Configuration**
 - **JSON config**: All settings in a JSON file that gets embedded in the firmware
 - **Secure storage**: WiFi passwords and server URLs stored encrypted
 - **Calibration**: Configurable sensor calibration and validation
 - **User-configurable**: Sensor reading intervals, network transmission intervals, and validation thresholds are all configurable via settings.json
 
+## Simplified Project Structure
+
+
 ## Architecture
 
+### **Unified Sensor Management**
 
-### Data Flow
+```mermaid
+graph TD
+    A[ISensor Interface] --> B[SensorManager]
+    C[AHT21Sensor] --> A
+    D[ENS160Sensor] --> A
+    E[Future Sensors] --> A
+    
+    B --> F[RTOSManager]
+    B --> G[Health Monitor]
+    B --> H[Network Task]
+    
+    I[Config Manager] --> B
+    J[I2C Manager] --> C
+    J --> D
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#e8f5e8
+    style D fill:#e8f5e8
+    style E fill:#fff3e0
+```
+
+### **Data Flow**
 ```mermaid
 graph TD
     A[AHT21 Sensor] -->|I2C| B[I2C Manager]
     C[ENS160 Sensor] -->|I2C| B
-    B --> D[Sensor Task]
-    D -->|Calibration| E[Calibration Manager]
-    E --> F[Data Queue]
-    F --> G[Network Task]
-    G -->|HTTP POST| H[Remote Server]
+    B --> D[SensorManager]
+    D --> E[Sensor Task]
+    E -->|Calibration| F[Calibration Manager]
+    F --> G[Data Queue]
+    G --> H[Network Task]
+    H -->|HTTP POST| I[Remote Server]
     
-    I[Configuration] -->|JSON| J[Config Manager]
-    J --> K[RTOS Manager]
-    J --> L[Sensor Registry]
-    K --> D
-    K --> G
+    J[Configuration] -->|JSON| K[Config Manager]
+    K --> L[RTOS Manager]
+    K --> M[Sensor Registry]
+    L --> E
+    L --> H
     
-    M[WiFi Manager] -->|Credentials| G
-    N[Secure Storage] -->|NVS| M
+    N[WiFi Manager] -->|Credentials| H
+    O[Secure Storage] -->|NVS| N
+    P[Monitor Task] -->|Health Check| L
+    P -->|Statistics| Q[System Stats]
+    R[SNTP Manager] -->|Time Sync| H
     
-    O[Monitor Task] -->|Health Check| K
-    O -->|Statistics| P[System Stats]
+    H -->|Health Stats| S[Health Monitor]
+    E -->|Health Stats| S
+    S --> T[Health Server]
+    T -->|HTTP GET| U[Health Endpoint]
     
-    Q[SNTP Manager] -->|Time Sync| G
-    
-    %% Health Monitoring Components
-    D -->|Health Stats| R[Health Monitor]
-    G -->|Health Stats| R
-    R --> S[Health Server]
-    S -->|HTTP GET| T[Health Endpoint]
-    
-    %% Heartbeat Monitoring
-    U[Heartbeat Task] -->|Status Check| A
-    U -->|Status Check| C
-    U -->|Sensor Health| K
+    V[Heartbeat Task] -->|Sensor Health| L
+    V -->|Status Check| D
     
     style A fill:#e1f5fe
     style C fill:#e1f5fe
     style B fill:#f3e5f5
     style D fill:#fff3e0
-    style G fill:#fff3e0
-    style O fill:#fff3e0
-    style U fill:#fff3e0
-    style H fill:#e8f5e8
-    style J fill:#fce4ec
-    style L fill:#fce4ec
-    style N fill:#fce4ec
-    style R fill:#fff8e1
+    style E fill:#fff3e0
+    style H fill:#fff3e0
+    style P fill:#fff3e0
+    style V fill:#fff3e0
+    style I fill:#e8f5e8
+    style K fill:#fce4ec
+    style M fill:#fce4ec
+    style O fill:#fce4ec
     style S fill:#fff8e1
-    style T fill:#e8f5e8
+    style T fill:#fff8e1
+    style U fill:#e8f5e8
 ```
 
-### Task Structure
+### **Task Structure**
 
 ```mermaid
-
 graph LR
     subgraph "Core Tasks"
-        SENSOR[Sensor Task<br/>• Read sensors<br/>• Validate data<br/>• Update health stats]
+        SENSOR[Sensor Task<br/>• Read sensors via SensorManager<br/>• Validate data<br/>• Update health stats]
         NETWORK[Network Task<br/>• HTTP transmission<br/>• Retry logic<br/>• Update health stats]
         MONITOR[Monitor Task<br/>• System health<br/>• Statistics<br/>• Diagnostics]
-        HEARTBEAT[Heartbeat Task<br/>• Sensor health monitoring<br/>• Status checks<br/>• Failure detection]
+        HEARTBEAT[Heartbeat Task<br/>• Sensor health monitoring<br/>• Status checks via SensorManager<br/>• Failure detection]
     end
     
     subgraph "Health System"
@@ -101,14 +123,11 @@ graph LR
     end
     
     %% Core task relationships
-
-
     SENSOR --> QUEUE
     QUEUE --> NETWORK
     SENSOR --> EVENTS
     NETWORK --> EVENTS
     MONITOR --> EVENTS
-
     HEARTBEAT --> EVENTS
     
     %% Health monitoring relationships
@@ -135,7 +154,7 @@ graph LR
     class QUEUE,EVENTS communication
 ```
 
-### Task Scheduling and Timing
+### **Task Scheduling and Timing**
 
 ```mermaid
 gantt
@@ -144,38 +163,37 @@ gantt
     axisFormat %H:%M
     
     section Sensor Task
-    AHT21 Reading    :aht21, 2024-01-01, 10s
-    ENS160 Reading   :ens160, after aht21, 10s
-    Data Validation  :validation, after ens160, 10s
-    Queue Send       :queue, after validation, 10s
-    Health Update    :health, after queue, 5s
+    SensorManager Read    :sensor_read, 2024-01-01, 10s
+    Data Validation      :validation, after sensor_read, 10s
+    Queue Send           :queue, after validation, 10s
+    Health Update        :health, after queue, 5s
     
     section Network Task
-    Queue Receive    :receive, after queue, 10s
-    HTTP Request     :http, after receive, 40s
-    Response Process :response, after http, 10s
-    Health Update    :health_net, after response, 5s
+    Queue Receive        :receive, after queue, 10s
+    HTTP Request         :http, after receive, 40s
+    Response Process     :response, after http, 10s
+    Health Update        :health_net, after response, 5s
     
     section Monitor Task
-    Health Check     :health, 2024-01-01, 10s
-    Statistics       :stats, after health, 10s
+    Health Check         :health, 2024-01-01, 10s
+    Statistics           :stats, after health, 10s
     
     section Heartbeat Task
-    Sensor Health    :heartbeat, 2024-01-01, 30s
-    Status Check     :status, after heartbeat, 10s
-    Failure Detect   :failure, after status, 5s
+    Sensor Health        :heartbeat, 2024-01-01, 30s
+    Status Check         :status, after heartbeat, 10s
+    Failure Detect       :failure, after status, 5s
     
     section Health Monitoring
-    Stats Collection :stats_collect, 2024-01-01, 30s
-    Endpoint Ready   :endpoint, after stats_collect, 10s
+    Stats Collection     :stats_collect, 2024-01-01, 30s
+    Endpoint Ready       :endpoint, after stats_collect, 10s
     
     section Watchdog
-    Feed Watchdog    :watchdog, 2024-01-01, 50s
+    Feed Watchdog        :watchdog, 2024-01-01, 50s
 ```
 
 **Note**: All timing intervals are user-configurable via settings.json. Default values shown above can be customised at build time.
 
-### Health Monitoring System
+### **Health Monitoring System**
 
 The system includes a comprehensive health monitoring system that tracks:
 
@@ -197,7 +215,7 @@ The system includes a comprehensive health monitoring system that tracks:
 - **Average response time**: Network performance metrics
 - **Retry attempts**: Total retry attempts for failed requests
 
-### Health Endpoint
+### **Health Endpoint**
 
 The system provides a health monitoring endpoint at `http://<esp32-ip>/api/health`:
 
@@ -238,11 +256,11 @@ GET /api/health
 }
 ```
 
-### Sensor Data Validation Flow
+### **Sensor Data Validation Flow**
 
 ```mermaid
 flowchart TD
-    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data]
+    SENSOR_TASK[Sensor Task] --> START[Read Sensor Data via SensorManager]
     
     %% AHT21 Flow (Left Side)
     START --> A1[Read AHT21 Data]
