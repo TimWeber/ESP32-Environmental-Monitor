@@ -21,7 +21,7 @@ An embedded environmental monitoring system built for the ESP32-C3. With the hel
 
 ## Architecture
 
-### **Sensor Management**
+### **Unified Sensor Management**
 
 ```mermaid
 graph TD
@@ -47,9 +47,17 @@ graph TD
 
 ### **Data Flow**
 ```mermaid
-graph TD
+graph TB
+    %% Sensor Layer
     A[AHT21 Sensor] -->|I2C| B[I2C Manager]
     C[ENS160 Sensor] -->|I2C| B
+    
+    %% Configuration Layer
+    J[Configuration] -->|JSON| K[Config Manager]
+    K --> L[RTOS Manager]
+    K --> M[Sensor Registry]
+    
+    %% Core Data Flow
     B --> D[SensorManager]
     D --> E[Sensor Task]
     E -->|Calibration| F[Calibration Manager]
@@ -57,26 +65,28 @@ graph TD
     G --> H[Network Task]
     H -->|HTTP POST| I[Remote Server]
     
-    J[Configuration] -->|JSON| K[Config Manager]
-    K --> L[RTOS Manager]
-    K --> M[Sensor Registry]
+    %% RTOS Management
     L --> E
     L --> H
     
-    N[WiFi Manager] -->|Credentials| H
-    O[Secure Storage] -->|NVS| N
+    %% Health Monitoring
+    V[Heartbeat Task] -->|Sensor Health| L
+    V -->|Status Check| D
     P[Monitor Task] -->|Health Check| L
     P -->|Statistics| Q[System Stats]
+    
+    %% Network Infrastructure
+    N[WiFi Manager] -->|Credentials| H
+    O[Secure Storage] -->|NVS| N
     R[SNTP Manager] -->|Time Sync| H
     
+    %% Health System
     H -->|Health Stats| S[Health Monitor]
     E -->|Health Stats| S
     S --> T[Health Server]
     T -->|HTTP GET| U[Health Endpoint]
     
-    V[Heartbeat Task] -->|Sensor Health| L
-    V -->|Status Check| D
-    
+    %% Styling
     style A fill:#e1f5fe
     style C fill:#e1f5fe
     style B fill:#f3e5f5
@@ -87,6 +97,7 @@ graph TD
     style V fill:#fff3e0
     style I fill:#e8f5e8
     style K fill:#fce4ec
+    style L fill:#fce4ec
     style M fill:#fce4ec
     style O fill:#fce4ec
     style S fill:#fff8e1
