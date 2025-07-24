@@ -191,20 +191,20 @@ extern "C" void app_main() {
         ESP_LOGI(TAG, "Initialising SNTP...");
         sntp_manager_init();
         
+        // Create configuration manager first
+        auto configProvider = createConfigProvider(configPath);
+        if (!configProvider) {
+            ESP_LOGE(TAG, "Failed to create configuration provider");
+            throw std::runtime_error("Configuration provider creation failed");
+        }
+        
+        auto configManager = std::make_shared<ConfigManager>(std::move(configProvider));
+        
         // Initialise HTTP server
         ESP_LOGI(TAG, "Initialising HTTP server...");
         esp_err_t http_ret = http_server_init();
         if (http_ret == ESP_OK) {
             ESP_LOGI(TAG, "HTTP server initialised successfully");
-            
-            // Create configuration manager first
-            auto configProvider = createConfigProvider(configPath);
-            if (!configProvider) {
-                ESP_LOGE(TAG, "Failed to create configuration provider");
-                throw std::runtime_error("Configuration provider creation failed");
-            }
-            
-            auto configManager = std::make_shared<ConfigManager>(std::move(configProvider));
             
             // Initialise sensor registry with configuration dependency
             ESP_LOGI(TAG, "Initialising sensor registry...");
@@ -277,9 +277,15 @@ extern "C" void app_main() {
         
             auto ens160Ptr = static_cast<ENS160Sensor*>(ens160Sensor.get());
             if (ens160Ptr) {
-
                 ens160Ptr->setValidationThresholds(1, 5, 1, 10000, 1, 10000);
                 ESP_LOGI(TAG, "ENS160 validation thresholds set");
+                
+                // Set warmup timeout from configuration if available
+                if (configManager) {
+                    uint32_t warmupTimeout = configManager->getENS160WarmupTimeoutMs();
+                    ens160Ptr->setWarmupTimeout(warmupTimeout);
+                    ESP_LOGI(TAG, "ENS160 warmup timeout set from configuration: %lu ms", warmupTimeout);
+                }
             }
         }
         

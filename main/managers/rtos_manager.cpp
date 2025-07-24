@@ -362,6 +362,7 @@ bool RTOSManager::loadConfiguration(const char* configPath) {
     success &= configManager_->loadDataTransmissionConfig();
     success &= configManager_->loadConnectivityConfig();
     success &= configManager_->loadSystemMonitoringConfig();
+    success &= configManager_->loadSensorConfig();
     
     if (success) {
         // Apply loaded configuration to RTOSManager member variables
@@ -461,39 +462,17 @@ void RTOSManager::sensorTask(void* parameter) {
     while (manager->systemRunning_.load()) {
         TickType_t currentTime = xTaskGetTickCount();
         
-        // Debug: Log timing information
-        static TickType_t lastDebugTime = 0;
-        if ((currentTime - lastDebugTime) >= pdMS_TO_TICKS(30000)) { // Every 30 seconds
-            ESP_LOGI(TAG, "Sensor task debug: currentTime=%lu, lastReadingTime=%lu, interval=%lu, timeSinceLast=%lu",
-                     currentTime, lastReadingTime, manager->sensorReadingIntervalMs_,
-                     pdTICKS_TO_MS(currentTime - lastReadingTime));
-            lastDebugTime = currentTime;
-        }
+
         
         if ((currentTime - lastReadingTime) >= pdMS_TO_TICKS(manager->sensorReadingIntervalMs_)) {
-            ESP_LOGI(TAG, "Sensor task: Starting sensor reading cycle");
-            
             // Acquire sensor mutex
             if (xSemaphoreTake(manager->sensorMutex_, pdMS_TO_TICKS(1000)) == pdTRUE) {
                 try {
                     // Read all sensors using SensorManager
                     if (manager->sensorManager_) {
-                        ESP_LOGI(TAG, "Sensor task: Reading all sensors via SensorManager...");
                         SensorData sensor_data = manager->sensorManager_->readAllSensors();
                         sensor_data.timestamp = pdTICKS_TO_MS(currentTime);
-                        sensor_data.isNewData = true; // Set this to true for new readings
-                        
-                        // Log sensor data
-                        ESP_LOGI(TAG, "Sensor data: %zu fields, %zu valid sensors", 
-                                  sensor_data.getFieldCount(), sensor_data.getValidSensorCount());
-                        
-                        // Log individual sensor values
-                        for (size_t i = 0; i < UnifiedSensorData::MAX_FIELDS; i++) {
-                            if (sensor_data.values[i].used) {
-                                ESP_LOGI(TAG, "  %s: %.2f", sensor_data.values[i].name, sensor_data.values[i].value);
-                            }
-                        }
-                        
+
                         // Set environmental compensation for ENS160 if we have temperature/humidity
                         if (sensor_data.hasValue("temperature") && sensor_data.hasValue("humidity")) {
                             float temp = sensor_data.getValue("temperature");
@@ -509,11 +488,17 @@ void RTOSManager::sensorTask(void* parameter) {
                         }
                         
                         // Record sensor reading success/failure for health monitoring
-                        manager->healthMonitor_->recordSensorReading(true);
+                        bool hasValidData = sensor_data.isNewData && 
+                                          (sensor_data.isSensorValid("AHT21") || sensor_data.isSensorValid("ENS160"));
+                        manager->healthMonitor_->recordSensorReading(hasValidData);
                         
-                        // Send to network task
-                        if (xQueueSend(manager->sensorDataQueue_, &sensor_data, pdMS_TO_TICKS(1000)) != pdTRUE) {
-                            ESP_LOGW(TAG, "Failed to send sensor data to network task");
+                        // Send to network task only if we have valid data
+                        if (hasValidData) {
+                            if (xQueueSend(manager->sensorDataQueue_, &sensor_data, pdMS_TO_TICKS(1000)) != pdTRUE) {
+                                ESP_LOGW(TAG, "Failed to send sensor data to network task");
+                            }
+                        } else {
+                            ESP_LOGW(TAG, "No valid sensor data available - skipping transmission");
                         }
                         
                     } else {
@@ -563,19 +548,11 @@ void RTOSManager::networkTask(void* parameter) {
         // Wait for sensor data with very short timeout to allow frequent watchdog feeding
         TickType_t waitTime = pdMS_TO_TICKS(1000);  // 1 second timeout maximum
         
-        // Debug: Log network task status
-        static TickType_t lastNetworkDebugTime = 0;
-        TickType_t currentNetworkTime = xTaskGetTickCount();
-        if ((currentNetworkTime - lastNetworkDebugTime) >= pdMS_TO_TICKS(30000)) { // Every 30 seconds
-            ESP_LOGI(TAG, "Network task debug: Waiting for sensor data...");
-            lastNetworkDebugTime = currentNetworkTime;
-        }
+
         
         if (xQueueReceive(manager->sensorDataQueue_, &sensor_data, waitTime) == pdTRUE) {
-            ESP_LOGI(TAG, "Network task: Received sensor data from queue");
             // Only process if this is new data
             if (sensor_data.isNewData) {
-                ESP_LOGI(TAG, "Network task: Processing new sensor data");
                 // Feed watchdog before starting network operation
                 manager->feedWatchdog();
                 
@@ -587,6 +564,10 @@ void RTOSManager::networkTask(void* parameter) {
                     dbData.temperature = sensor_data.getValue("temperature");
                     dbData.humidity = sensor_data.getValue("humidity");
                     dbData.aht21Valid = true;
+                    ESP_LOGI(TAG, "AHT21 data: T=%.1f°C, H=%.1f%%", dbData.temperature, dbData.humidity);
+                } else {
+                    dbData.aht21Valid = false;
+                    ESP_LOGW(TAG, "AHT21 sensor not valid");
                 }
                 
                 if (sensor_data.isSensorValid("ENS160")) {
@@ -594,6 +575,10 @@ void RTOSManager::networkTask(void* parameter) {
                     dbData.tvoc = (uint16_t)sensor_data.getValue("tvoc");
                     dbData.eco2 = (uint16_t)sensor_data.getValue("eco2");
                     dbData.ens160Valid = true;
+                    ESP_LOGI(TAG, "ENS160 data: AQI=%d, TVOC=%d, eCO2=%d", dbData.aqi, dbData.tvoc, dbData.eco2);
+                } else {
+                    dbData.ens160Valid = false;
+                    ESP_LOGW(TAG, "ENS160 sensor not valid");
                 }
                 
                 // Send to database with retry logic and configurable parameters

@@ -131,16 +131,12 @@ UnifiedSensorData SensorManager::readAllSensors() {
         }
         
         try {
-            ESP_LOGI(TAG, "Reading sensor: %s", name.c_str());
             SensorReading reading = sensor->readData();
             
             // Add sensor validity to unified data
             if (!data.addSensor(name.c_str(), reading.valid)) {
                 ESP_LOGW(TAG, "No space for sensor %s in unified data", name.c_str());
             }
-            
-            ESP_LOGI(TAG, "Sensor %s reading result: valid=%s, values=%zu", 
-                     name.c_str(), reading.valid ? "true" : "false", reading.values.size());
             
             if (reading.valid) {
                 data.isNewData = true;
@@ -150,12 +146,9 @@ UnifiedSensorData SensorManager::readAllSensors() {
                 for (const auto& [field, value] : reading.values) {
                     if (!data.addValue(field.c_str(), value)) {
                         ESP_LOGW(TAG, "No space for field %s in unified data", field.c_str());
-                    } else {
-                        ESP_LOGI(TAG, "  %s: %s = %.2f", name.c_str(), field.c_str(), value);
                     }
                 }
                 
-                ESP_LOGI(TAG, "Sensor %s read successfully", name.c_str());
                 updateSensorHealth(name, true);
             } else {
                 failedReadings_++;

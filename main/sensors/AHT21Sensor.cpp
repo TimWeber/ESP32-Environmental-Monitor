@@ -116,7 +116,11 @@ SensorReading AHT21Sensor::readData() {
     try {
         // Trigger measurement
         uint8_t triggerData[2] = {0x33, 0x00};
-        writeCommand(AHT21_CMD_TRIGGER, triggerData, 2);
+        if (!writeCommand(AHT21_CMD_TRIGGER, triggerData, 2)) {
+            ESP_LOGW(TAG, "AHT21 trigger command failed");
+            reading.valid = false;
+            return reading;
+        }
         
         // Wait for measurement to complete
         if (!waitForReady(1000)) {
@@ -126,7 +130,11 @@ SensorReading AHT21Sensor::readData() {
         }
         
         uint8_t rawData[6];
-        readData(rawData, 6);
+        if (!readData(rawData, 6)) {
+            ESP_LOGW(TAG, "AHT21 read data failed");
+            reading.valid = false;
+            return reading;
+        }
         
         // Check if measurement is valid
         if (rawData[0] & AHT21_STATUS_BUSY) {
@@ -177,16 +185,14 @@ bool AHT21Sensor::reset() {
     
     ESP_LOGI(TAG, "Resetting AHT21 sensor");
     
-    try {
-        // AHT21 soft reset - send reset command without data
-        writeCommand(AHT21_CMD_RESET);
-        vTaskDelay(pdMS_TO_TICKS(AHT21_RESET_DELAY_MS));
-        initialised_ = false;
-        return true;
-    } catch (const std::exception& e) {
-        ESP_LOGW(TAG, "AHT21 reset failed: %s", e.what());
+    // AHT21 soft reset - send reset command without data
+    if (!writeCommand(AHT21_CMD_RESET)) {
+        ESP_LOGW(TAG, "AHT21 reset command failed");
         return false;
     }
+    vTaskDelay(pdMS_TO_TICKS(AHT21_RESET_DELAY_MS));
+    initialised_ = false;
+    return true;
 }
 
 bool AHT21Sensor::isReady() {
@@ -222,9 +228,10 @@ uint8_t AHT21Sensor::getStatus() {
     }
 }
 
-void AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen) {
+bool AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen) {
     if (!deviceHandle_) {
-        throw std::runtime_error("AHT21 device not initialized");
+        ESP_LOGW(TAG, "AHT21 device not initialized");
+        return false;
     }
     
     try {
@@ -234,7 +241,8 @@ void AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen)
         size_t totalLen = 1;
         if (data && dataLen > 0) {
             if (dataLen > 7) {
-                throw std::runtime_error("AHT21 command data too long");
+                ESP_LOGW(TAG, "AHT21 command data too long");
+                return false;
             }
             memcpy(&buffer[1], data, dataLen);
             totalLen += dataLen;
@@ -242,33 +250,40 @@ void AHT21Sensor::writeCommand(uint8_t cmd, const uint8_t* data, size_t dataLen)
         
         esp_err_t err = i2c_master_transmit(deviceHandle_, buffer, totalLen, 1000);
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "AHT21 write command failed: %s (cmd=0x%02X)", 
+            ESP_LOGW(TAG, "AHT21 write command failed: %s (cmd=0x%02X)", 
                      esp_err_to_name(err), cmd);
-            throw std::runtime_error("Failed to write AHT21 command: " + std::string(esp_err_to_name(err)));
+            return false;
         }
+        
+        return true;
     } catch (const std::exception& e) {
         ESP_LOGW(TAG, "AHT21 write command failed: %s", e.what());
-        throw; // Re-throw the exception
+        return false;
     }
 }
 
-void AHT21Sensor::readData(uint8_t* buffer, size_t len) {
+bool AHT21Sensor::readData(uint8_t* buffer, size_t len) {
     if (!deviceHandle_) {
-        throw std::runtime_error("AHT21 device not initialized");
+        ESP_LOGW(TAG, "AHT21 device not initialized");
+        return false;
     }
     
     if (!buffer) {
-        throw std::runtime_error("AHT21 read buffer is null");
+        ESP_LOGW(TAG, "AHT21 read buffer is null");
+        return false;
     }
     
     try {
         esp_err_t err = i2c_master_receive(deviceHandle_, buffer, len, 1000);
         if (err != ESP_OK) {
-            throw std::runtime_error("Failed to read AHT21 data: " + std::string(esp_err_to_name(err)));
+            ESP_LOGW(TAG, "AHT21 read data failed: %s", esp_err_to_name(err));
+            return false;
         }
+        
+        return true;
     } catch (const std::exception& e) {
         ESP_LOGW(TAG, "AHT21 read data failed: %s", e.what());
-        throw; // Re-throw the exception
+        return false;
     }
 }
 

@@ -26,6 +26,7 @@ ConfigManager::ConfigManager(std::unique_ptr<IConfigProvider> provider)
       tvocMax_(DEFAULT_TVOC_MAX),
       eco2Min_(DEFAULT_ECO2_MIN),
       eco2Max_(DEFAULT_ECO2_MAX),
+      ens160WarmupTimeoutMs_(DEFAULT_ENS160_WARMUP_TIMEOUT_MS),
       calibrationManager_(std::make_unique<CalibrationManager>()) {
     
     ESP_LOGI(TAG, "ConfigManager created");
@@ -364,7 +365,34 @@ bool ConfigManager::loadSystemMonitoringConfig() {
     return true;
 }
 
-
+bool ConfigManager::loadSensorConfig() {
+    if (!configProvider_) {
+        ESP_LOGW(TAG, "No config provider available");
+        return false;
+    }
+    
+    auto dataCollectionSection = configProvider_->getSection("data_collection");
+    if (!dataCollectionSection) {
+        ESP_LOGW(TAG, "No data_collection section found in config");
+        return false;
+    }
+    
+    // Load sensor-specific configuration
+    auto sensorsSection = dataCollectionSection->getSection("sensor_parameters");
+    if (sensorsSection) {
+        auto ens160Section = sensorsSection->getSection("ens160");
+        if (ens160Section) {
+            int warmupTimeoutMinutes;
+            if (ens160Section->getInt("warmup_timeout_minutes", warmupTimeoutMinutes)) {
+                ens160WarmupTimeoutMs_ = warmupTimeoutMinutes * 60 * 1000; // Convert minutes to milliseconds
+                ESP_LOGI(TAG, "Loaded ENS160 warmup timeout: %d minutes (%lu ms)", 
+                         warmupTimeoutMinutes, ens160WarmupTimeoutMs_);
+            }
+        }
+    }
+    
+    return true;
+}
 
 bool ConfigManager::validateConfiguration() const {
     ESP_LOGI(TAG, "Validating configuration...");

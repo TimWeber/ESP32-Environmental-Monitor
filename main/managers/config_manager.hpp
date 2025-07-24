@@ -47,6 +47,7 @@ public:
     bool loadDataTransmissionConfig();
     bool loadConnectivityConfig();
     bool loadSystemMonitoringConfig();
+    bool loadSensorConfig();
     
     // Configuration validation
     bool validateConfiguration() const;
@@ -75,6 +76,9 @@ public:
     uint16_t getTvocMax() const { return tvocMax_; }
     uint16_t getEco2Min() const { return eco2Min_; }
     uint16_t getEco2Max() const { return eco2Max_; }
+    
+    // Sensor-specific configuration
+    uint32_t getENS160WarmupTimeoutMs() const { return ens160WarmupTimeoutMs_; }
     
     // Calibration access
     const CalibrationManager* getCalibrationManager() const { return calibrationManager_.get(); }
@@ -105,6 +109,9 @@ private:
     uint16_t eco2Min_;
     uint16_t eco2Max_;
     
+    // Sensor-specific configuration
+    uint32_t ens160WarmupTimeoutMs_;
+    
     // Calibration manager
     std::unique_ptr<CalibrationManager> calibrationManager_;
     
@@ -125,6 +132,7 @@ private:
     static constexpr uint16_t DEFAULT_TVOC_MAX = 10000;
     static constexpr uint16_t DEFAULT_ECO2_MIN = 0;
     static constexpr uint16_t DEFAULT_ECO2_MAX = 10000;
+    static constexpr uint32_t DEFAULT_ENS160_WARMUP_TIMEOUT_MS = 1800000; // 30 minutes
     
 
 };

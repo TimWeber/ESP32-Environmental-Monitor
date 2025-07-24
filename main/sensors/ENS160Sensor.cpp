@@ -2,12 +2,14 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "managers/config_manager.hpp"
 #include "freertos/task.h"
 #include <cstring>
 
 ENS160Sensor::ENS160Sensor(I2CManager& i2cManager) 
     : i2cManager_(i2cManager), deviceHandle_(nullptr), initialised_(false), startupTime_(0),
-      aqiMin_(0), aqiMax_(5), tvocMin_(0), tvocMax_(10000), eco2Min_(0), eco2Max_(10000) {
+      aqiMin_(0), aqiMax_(5), tvocMin_(0), tvocMax_(10000), eco2Min_(0), eco2Max_(10000),
+      warmupTimeoutMs_(1800000) { // Default 30 minutes
 }
 
 ENS160Sensor::~ENS160Sensor() {
@@ -52,7 +54,9 @@ bool ENS160Sensor::initialise() {
     
     try {
         if (!i2cManager_.isInitialised()) {
-            throw std::runtime_error("I2C manager not initialised");
+            ESP_LOGW(TAG, "I2C manager not initialised");
+            initialised_ = false;
+            return false;
         }
         
         // Create I2C device
@@ -62,10 +66,20 @@ bool ENS160Sensor::initialise() {
         vTaskDelay(pdMS_TO_TICKS(ENS160_STARTUP_DELAY_MS));
         
         // Verify part ID
-        uint16_t partId = getPartId();
-        ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
+        uint16_t partId = 0xFFFF;
+        try {
+            partId = getPartId();
+            ESP_LOGI(TAG, "ENS160 Part ID: 0x%04X", partId);
+        } catch (const std::exception& e) {
+            ESP_LOGW(TAG, "Failed to read ENS160 Part ID: %s", e.what());
+            partId = 0xFFFF;
+        } catch (...) {
+            ESP_LOGW(TAG, "Failed to read ENS160 Part ID: unknown error");
+            partId = 0xFFFF;
+        }
+        
         if (partId != ENS160_PART_ID) {
-            ESP_LOGW(TAG, "Invalid ENS160 Part ID - continuing without sensor");
+            ESP_LOGW(TAG, "Invalid ENS160 Part ID (0x%04X) - expected 0x%04X", partId, ENS160_PART_ID);
             
             // Clean up device handle
             if (deviceHandle_) {
@@ -76,31 +90,48 @@ bool ENS160Sensor::initialise() {
                 deviceHandle_ = nullptr;
             }
             
-                    // Don't throw exception - just mark as not initialised
-        initialised_ = false;
-        return false;
+            // Don't throw exception - just mark as not initialised
+            initialised_ = false;
+            return false;
         }
         
         // Reset the sensor first to ensure clean state
         ESP_LOGI(TAG, "Resetting ENS160 sensor...");
+        
+        // Step 1: Put sensor in sleep mode
         writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_SLEEP);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
         
-        // Put sensor in idle mode first
-        setOperatingMode(ENS160_OPMODE_IDLE);
-        vTaskDelay(pdMS_TO_TICKS(50));
-        
-        // Clear general purpose read registers
+        // Step 2: Clear general purpose read registers
         writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
         
-        // Set to standard operating mode
-        setOperatingMode(ENS160_OPMODE_STANDARD);
+        // Step 3: Put sensor in idle mode
+        writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_IDLE);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 4: Clear registers again
+        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 5: Set to standard operating mode
+        writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_STANDARD);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        // Step 6: Clear registers one more time
+        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
         vTaskDelay(pdMS_TO_TICKS(100));
         
         // Check initial status
         uint8_t initialStatus = getDeviceStatus();
         ESP_LOGI(TAG, "ENS160 initial status after mode set: 0x%02X", initialStatus);
+        
+        // Check if sensor is responding properly
+        if (initialStatus == 0xFF) {
+            ESP_LOGW(TAG, "ENS160 not responding properly - check I2C connection");
+            initialised_ = false;
+            return false;
+        }
         
         // Don't wait for full warmup during initialisation - let it warm up naturally
         ESP_LOGI(TAG, "ENS160 initialisation complete, sensor will warm up during operation");
@@ -132,6 +163,25 @@ bool ENS160Sensor::initialise() {
 bool ENS160Sensor::initialiseFromConfig(const char* configPath) {
     ESP_LOGI(TAG, "Initialising ENS160 sensor from config: %s", configPath);
     
+    // Load configuration if config path is provided
+    if (configPath) {
+        try {
+            auto configProvider = createConfigProvider(std::string(configPath));
+            if (configProvider) {
+                auto configManager = std::make_unique<ConfigManager>(std::move(configProvider));
+                
+                // Load sensor configuration
+                if (configManager->loadSensorConfig()) {
+                    uint32_t warmupTimeout = configManager->getENS160WarmupTimeoutMs();
+                    setWarmupTimeout(warmupTimeout);
+                    ESP_LOGI(TAG, "ENS160 configuration loaded from: %s", configPath);
+                }
+            }
+        } catch (const std::exception& e) {
+            ESP_LOGW(TAG, "Failed to load ENS160 configuration: %s", e.what());
+        }
+    }
+    
     bool result = initialise();
     
     if (!initialised_) {
@@ -155,6 +205,12 @@ void ENS160Sensor::setValidationThresholds(uint8_t aqiMin, uint8_t aqiMax,
               aqiMin_, aqiMax_, tvocMin_, tvocMax_, eco2Min_, eco2Max_);
 }
 
+void ENS160Sensor::setWarmupTimeout(uint32_t timeoutMs) {
+    warmupTimeoutMs_ = timeoutMs;
+    ESP_LOGI(TAG, "ENS160 warmup timeout set to %lu ms (%lu minutes)", 
+              warmupTimeoutMs_, warmupTimeoutMs_ / 60000);
+}
+
 SensorReading ENS160Sensor::readData() {
     SensorReading reading;
     
@@ -171,6 +227,29 @@ SensorReading ENS160Sensor::readData() {
         // Check device status
         uint8_t deviceStatus = getDeviceStatus();
         ESP_LOGI(TAG, "ENS160 device status: 0x%02X (warmup time: %lu ms)", deviceStatus, warmupTimeMs);
+        
+        // Check if sensor is stuck in error state for too long
+        static uint32_t errorStateStartTime = 0;
+        static bool inErrorState = false;
+        
+        uint8_t statusBits = deviceStatus & 0x0F;
+        if (statusBits == ENS160_DEVICE_STATUS_INVALID_OUTPUT || 
+            (deviceStatus != 0x00 && deviceStatus != 0x01 && deviceStatus != 0x02 && 
+             deviceStatus != 0x03 && deviceStatus != 0x6E && deviceStatus != 0x6F)) {
+            if (!inErrorState) {
+                errorStateStartTime = currentTime;
+                inErrorState = true;
+                ESP_LOGW(TAG, "ENS160 entered error state (0x%02X)", deviceStatus);
+                                } else if (pdTICKS_TO_MS(currentTime - errorStateStartTime) > warmupTimeoutMs_) {
+                ESP_LOGW(TAG, "ENS160 stuck in error state for %lu minutes - performing reset", 
+                         warmupTimeoutMs_ / 60000);
+                reset();
+                inErrorState = false;
+                return reading; // Return invalid reading this time
+            }
+        } else {
+            inErrorState = false;
+        }
         
         // Debug: Read all data registers to see what's actually there
         uint8_t rawAqi = readRegister(ENS160_REG_DATA_AQI);
@@ -221,8 +300,6 @@ SensorReading ENS160Sensor::readData() {
             ESP_LOGI(TAG, "ENS160 reset completed, restarting measurements");
         }
         
-        uint8_t statusBits = deviceStatus & 0x0F;
-        
         // Use the pre-read values from the reset check above
         uint8_t aqi = tempAqi;
         uint16_t tvoc = tempTvoc;
@@ -232,13 +309,25 @@ SensorReading ENS160Sensor::readData() {
                 aqi, tvoc, eco2, deviceStatus);
         
         // Validate data quality using configurable thresholds
-        bool hasValidReadings = (aqi >= aqiMin_ && aqi <= aqiMax_) && 
+        // During warmup, allow zeros as they are valid for the sensor
+        bool isWarmup = (statusBits == ENS160_DEVICE_STATUS_WARM_UP || 
+                         statusBits == ENS160_DEVICE_STATUS_INITIAL_START);
+        
+        bool hasValidReadings;
+        if (isWarmup) {
+            // During warmup, accept any values including zeros
+            hasValidReadings = (aqi <= aqiMax_) && (tvoc <= tvocMax_) && (eco2 <= eco2Max_);
+            ESP_LOGI(TAG, "ENS160 warmup validation: AQI[0-%d]=%d, TVOC[0-%d]=%d, eCO2[0-%d]=%d, valid=%s", 
+                    aqiMax_, aqi, tvocMax_, tvoc, eco2Max_, eco2, hasValidReadings ? "YES" : "NO");
+        } else {
+            // Normal operation - use full range validation
+            hasValidReadings = (aqi >= aqiMin_ && aqi <= aqiMax_) && 
                                (tvoc >= tvocMin_ && tvoc <= tvocMax_) && 
                                (eco2 >= eco2Min_ && eco2 <= eco2Max_);
-        
-        ESP_LOGI(TAG, "ENS160 validation: AQI[%d-%d]=%d, TVOC[%d-%d]=%d, eCO2[%d-%d]=%d, valid=%s", 
-                aqiMin_, aqiMax_, aqi, tvocMin_, tvocMax_, tvoc, 
-                eco2Min_, eco2Max_, eco2, hasValidReadings ? "YES" : "NO");
+            ESP_LOGI(TAG, "ENS160 normal validation: AQI[%d-%d]=%d, TVOC[%d-%d]=%d, eCO2[%d-%d]=%d, valid=%s", 
+                    aqiMin_, aqiMax_, aqi, tvocMin_, tvocMax_, tvoc, 
+                    eco2Min_, eco2Max_, eco2, hasValidReadings ? "YES" : "NO");
+        }
         
         // Check if sensor is in a normal state
         if (statusBits == ENS160_DEVICE_STATUS_NORMAL) {
@@ -246,9 +335,20 @@ SensorReading ENS160Sensor::readData() {
             uint8_t dataStatus = getDataStatus();
             ESP_LOGI(TAG, "ENS160 data status: 0x%02X", dataStatus);
             
-            // Accept data in normal state regardless of NEWDAT flag during early operation
-            // The sensor might not set NEWDAT consistently in all conditions
-            if (hasValidReadings) {
+            // Check if we're getting zeros during "normal" status - this might be early warmup
+            bool hasZeroReadings = (aqi == 0 && tvoc == 0 && eco2 == 0);
+            
+            if (hasZeroReadings && warmupTimeMs < 60000) {
+                // If we're getting zeros and haven't warmed up for 60 seconds, treat as warmup
+                ESP_LOGI(TAG, "ENS160 normal status but zero readings during warmup - treating as warmup");
+                if (warmupTimeMs > 30000) {
+                    reading.valid = true;
+                    ESP_LOGI(TAG, "ENS160 warmup >30s with zero data: AQI=%d, TVOC=%d, eCO2=%d", 
+                            aqi, tvoc, eco2);
+                } else {
+                    reading.valid = false;
+                }
+            } else if (hasValidReadings) {
                 reading.valid = true;
                 ESP_LOGI(TAG, "ENS160 normal operation - valid data: AQI=%d, TVOC=%d, eCO2=%d", 
                         aqi, tvoc, eco2);
@@ -291,8 +391,19 @@ SensorReading ENS160Sensor::readData() {
             }
         } else {
             ESP_LOGW(TAG, "ENS160 unknown status (0x%02X), warmup time: %lu ms", deviceStatus, warmupTimeMs);
-            // For unknown status, accept if data looks reasonable
-            if (hasValidReadings) {
+            // For unknown status, check if it might be a valid warmup state
+            // Some ENS160 variants might use different status codes
+            if (deviceStatus == 0x6E || deviceStatus == 0x6F) {
+                // These might be valid warmup states for some sensor variants
+                ESP_LOGI(TAG, "ENS160 variant warmup status (0x%02X) - treating as warmup", deviceStatus);
+                if (warmupTimeMs > 30000 && hasValidReadings) {
+                    reading.valid = true;
+                    ESP_LOGI(TAG, "ENS160 variant warmup >30s with valid data: AQI=%d, TVOC=%d, eCO2=%d", 
+                            aqi, tvoc, eco2);
+                } else {
+                    reading.valid = false;
+                }
+            } else if (hasValidReadings) {
                 reading.valid = true;
                 ESP_LOGI(TAG, "ENS160 unknown status but valid data - using it: AQI=%d, TVOC=%d, eCO2=%d", 
                         aqi, tvoc, eco2);
@@ -367,11 +478,19 @@ bool ENS160Sensor::isReady() {
 }
 
 uint8_t ENS160Sensor::getDeviceStatus() {
-    return readRegister(ENS160_REG_DEVICE_STATUS);
+    uint8_t status = readRegister(ENS160_REG_DEVICE_STATUS);
+    if (status == 0xFF) {
+        ESP_LOGW(TAG, "Failed to read ENS160 device status");
+    }
+    return status;
 }
 
 uint8_t ENS160Sensor::getDataStatus() {
-    return readRegister(ENS160_REG_DATA_STATUS);
+    uint8_t status = readRegister(ENS160_REG_DATA_STATUS);
+    if (status == 0xFF) {
+        ESP_LOGW(TAG, "Failed to read ENS160 data status");
+    }
+    return status;
 }
 
 bool ENS160Sensor::isNewDataAvailable() {
@@ -384,10 +503,11 @@ bool ENS160Sensor::isNewDataAvailable() {
 }
 
 uint16_t ENS160Sensor::getPartId() {
-    try {
-        return readRegister16(ENS160_REG_PART_ID);
-    } catch (const std::exception& e) {
-        ESP_LOGW(TAG, "Failed to read ENS160 Part ID: %s", e.what());
+    uint8_t data[2];
+    if (readRegister(ENS160_REG_PART_ID, data, 2)) {
+        return (uint16_t)data[0] | ((uint16_t)data[1] << 8); // Little-endian
+    } else {
+        ESP_LOGW(TAG, "Failed to read ENS160 Part ID");
         return 0xFFFF; // Return invalid Part ID to indicate failure
     }
 }
@@ -426,41 +546,42 @@ void ENS160Sensor::writeRegister16(uint8_t reg, uint16_t value) {
     writeRegister(reg, data, 2);
 }
 
-void ENS160Sensor::readRegister(uint8_t reg, uint8_t* buffer, size_t len) {
+bool ENS160Sensor::readRegister(uint8_t reg, uint8_t* buffer, size_t len) {
     if (!deviceHandle_) {
-        throw std::runtime_error("ENS160 device not initialized");
+        ESP_LOGW(TAG, "ENS160 device not initialized");
+        return false;
     }
     
     if (!buffer) {
-        throw std::runtime_error("ENS160 read buffer is null");
+        ESP_LOGW(TAG, "ENS160 read buffer is null");
+        return false;
     }
     
     esp_err_t err = i2c_master_transmit_receive(deviceHandle_, &reg, 1, buffer, len, 1000);
     if (err != ESP_OK) {
-        throw std::runtime_error("Failed to read ENS160 register 0x" + 
-                                std::to_string(reg) + ": " + 
-                                std::string(esp_err_to_name(err)));
+        ESP_LOGW(TAG, "I2C read failed for register 0x%02X: %s", reg, esp_err_to_name(err));
+        return false;
     }
+    
+    return true;
 }
 
 uint8_t ENS160Sensor::readRegister(uint8_t reg) {
-    try {
-        uint8_t value;
-        readRegister(reg, &value, 1);
+    uint8_t value;
+    if (readRegister(reg, &value, 1)) {
         return value;
-    } catch (const std::exception& e) {
-        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X: %s", reg, e.what());
+    } else {
+        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X", reg);
         return 0xFF; // Return invalid value to indicate failure
     }
 }
 
 uint16_t ENS160Sensor::readRegister16(uint8_t reg) {
-    try {
-        uint8_t data[2];
-        readRegister(reg, data, 2);
+    uint8_t data[2];
+    if (readRegister(reg, data, 2)) {
         return (uint16_t)data[0] | ((uint16_t)data[1] << 8); // Little-endian
-    } catch (const std::exception& e) {
-        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X: %s", reg, e.what());
+    } else {
+        ESP_LOGW(TAG, "Failed to read ENS160 register 0x%02X", reg);
         return 0xFFFF; // Return invalid value to indicate failure
     }
 }
@@ -500,18 +621,36 @@ bool ENS160Sensor::waitForWarmup(uint32_t timeoutMs) {
 
 bool ENS160Sensor::reset() {
     try {
-        // Put sensor in sleep mode to reset
-        setOperatingMode(ENS160_OPMODE_SLEEP);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        ESP_LOGI(TAG, "Performing complete ENS160 reset...");
         
-        // Clear general purpose read registers
-        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
-        vTaskDelay(pdMS_TO_TICKS(50));
-        
-        // Set back to standard mode
-        setOperatingMode(ENS160_OPMODE_STANDARD);
+        // Step 1: Put sensor in sleep mode
+        writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_SLEEP);
         vTaskDelay(pdMS_TO_TICKS(100));
         
+        // Step 2: Clear general purpose read registers
+        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 3: Put sensor in idle mode
+        writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_IDLE);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 4: Clear registers again
+        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 5: Set back to standard mode
+        writeRegister(ENS160_REG_OPMODE, ENS160_OPMODE_STANDARD);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        // Step 6: Clear registers one more time
+        writeRegister(ENS160_REG_COMMAND, ENS160_COMMAND_CLRGPR);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 7: Reset startup time
+        startupTime_ = xTaskGetTickCount();
+        
+        ESP_LOGI(TAG, "ENS160 reset completed successfully");
         return true;
     } catch (const std::exception& e) {
         ESP_LOGE(TAG, "ENS160 reset failed: %s", e.what());

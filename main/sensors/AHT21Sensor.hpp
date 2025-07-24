@@ -91,17 +91,17 @@ private:
      * @param cmd Command byte
      * @param data Additional data bytes (optional)
      * @param dataLen Length of additional data
-     * @throws std::runtime_error if write fails
+     * @return true if successful, false if failed
      */
-    void writeCommand(uint8_t cmd, const uint8_t* data = nullptr, size_t dataLen = 0);
+    bool writeCommand(uint8_t cmd, const uint8_t* data = nullptr, size_t dataLen = 0);
     
     /**
      * @brief Read data from sensor
      * @param buffer Buffer to store read data
      * @param len Number of bytes to read
-     * @throws std::runtime_error if read fails
+     * @return true if successful, false if failed
      */
-    void readData(uint8_t* buffer, size_t len);
+    bool readData(uint8_t* buffer, size_t len);
     
     /**
      * @brief Wait for sensor to complete measurement

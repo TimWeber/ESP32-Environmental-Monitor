@@ -90,6 +90,9 @@ private:
     uint16_t tvocMax_;
     uint16_t eco2Min_;
     uint16_t eco2Max_;
+    
+    // Configurable warmup timeout
+    uint32_t warmupTimeoutMs_;
 
 public:
     /**
@@ -143,6 +146,12 @@ public:
     void setValidationThresholds(uint8_t aqiMin, uint8_t aqiMax, 
                                 uint16_t tvocMin, uint16_t tvocMax,
                                 uint16_t eco2Min, uint16_t eco2Max);
+    
+    /**
+     * @brief Set warmup timeout for error state reset (internal method)
+     * @param timeoutMs Timeout in milliseconds
+     */
+    void setWarmupTimeout(uint32_t timeoutMs);
     
     /**
      * @brief Initialise the ENS160 sensor (internal method)
@@ -236,7 +245,7 @@ private:
      * @param len Number of bytes to read
      * @throws std::runtime_error if read fails
      */
-    void readRegister(uint8_t reg, uint8_t* buffer, size_t len);
+    bool readRegister(uint8_t reg, uint8_t* buffer, size_t len);
     
     /**
      * @brief Read single byte from register
